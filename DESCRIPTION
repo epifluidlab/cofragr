@@ -1,6 +1,6 @@
 Package: cofragr
 Title: R package for cofragmentation analysis
-Version: 0.1.0.9000
+Version: 0.1.0.9001
 Authors@R: 
     person(given = "Haizi",
            family = "Zheng",
@@ -18,9 +18,14 @@ RoxygenNote: 7.1.1
 Depends:
     R (>= 4.0)
 Imports:
-  tidyverse,
-  data.table,
-  bedtorch,
-  GenomicRanges
+    tidyverse,
+    data.table,
+    bedtorch (>= 0.1.9.9004),
+    GenomicRanges,
+    here,
+    logging,
+    optparse,
+    doParallel,
+    doRNG
 Remotes: 
     haizi-zh/bedtorch@dev

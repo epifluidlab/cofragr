@@ -1,3 +1,4 @@
+#' @export
 read_fragments <- function(file_path, range = NULL, genome = NULL) {
   frag <- bedtorch::read_bed(file_path = file_path,
                              range = range,
@@ -10,7 +11,18 @@ read_fragments <- function(file_path, range = NULL, genome = NULL) {
   frag
 }
 
+#' @export
+write_contact_matrix <- function(cm, file_path, comments = NULL) {
+  cm <- as_tibble(cm) %>%
+    select(-c(width, strand, ranges2.width)) %>%
+    rename(chrom = seqnames, chrom2 = seqnames2, start2 = ranges2.start, end2 = ranges2.end) %>%
+    select(c(chrom, start, end, chrom2, start2, end2, everything())) %>%
+    mutate(start = as.integer(start - 1), start2 = as.integer(start2 - 1))
 
+  cm %>% data.table::as.data.table() %>% bedtorch::write_bed(file_path, comments = comments)
+}
+
+# write_contact_matrix(tmp3) %>% bedtorch::write_bed(file_path = "cm.bed")
 
 # Aggregate fragment lengths over the window
 # Each row is a genomic window, and len is a vector of fragment lengths
@@ -21,20 +33,20 @@ read_fragments <- function(file_path, range = NULL, genome = NULL) {
 #     1 29900000 <int [1]>
 #     2 30000000 <int [1,265]>
 #     3 30100000 <int [1,313]>
-fraglen_over_window <- function(frag, bin_size = 500e3L, genome = NULL) {
+fraglen_over_window <- function(frag, bin_size = 500e3L) {
   stopifnot(bin_size %in% c(100e3L, 500e3L, 1e6L, 2.5e6L, 5e6L))
 
   # Only allow single chromosome fragment data
   chrom <- unique(seqnames(frag))
   stopifnot(length(chrom) == 1)
 
-  if (is.null(genome)) {
-    # Get the genome name. E.g. GRCh37
-    genome <- unique(GenomeInfoDb::genome(frag))
-    stopifnot(length(genome) == 1)
-    if (!is.na(genome))
-      genome <- as.character(genome)
-  }
+  # if (is.null(genome)) {
+  #   # Get the genome name. E.g. GRCh37
+  #   genome <- unique(GenomeInfoDb::genome(frag))
+  #   stopifnot(length(genome) == 1)
+  #   if (!is.na(genome))
+  #     genome <- as.character(genome)
+  # }
 
   # Find mid-points
   midpoints <-
@@ -43,7 +55,7 @@ fraglen_over_window <- function(frag, bin_size = 500e3L, genome = NULL) {
   start(frag) <- midpoints
   width(frag) <- 1
 
-  if (is.null(genome) || is.na(genome)) {
+  # if (is.null(genome) || is.na(genome)) {
     window <-
       bedtorch::make_windows(
         window_size = bin_size,
@@ -53,12 +65,13 @@ fraglen_over_window <- function(frag, bin_size = 500e3L, genome = NULL) {
                                                frag
                                              ))))
       )
-  } else {
-    window <-
-      bedtorch::make_windows(window_size = bin_size,
-                             chrom = chrom,
-                             genome = genome)
-  }
+  # }
+  # else {
+  #   window <-
+  #     bedtorch::make_windows(window_size = bin_size,
+  #                            chrom = chrom,
+  #                            genome = genome)
+  # }
 
   hits <- GenomicRanges::findOverlaps(frag, window)
   as_tibble(hits) %>%
@@ -133,6 +146,7 @@ calc_contact_matrix <- function(fraglen, cofrag_plan, stat_func, bin_size = 500e
   if (n_workers > 1) {
     cl <- makeForkCluster(n_workers)
     registerDoParallel(cl)
+    logging::loginfo(str_interp("Successfully registered a cluster with ${n_workers} workers"))
     on.exit(stopCluster(cl), add = TRUE)
   }
 
@@ -176,13 +190,12 @@ calc_contact_matrix <- function(fraglen, cofrag_plan, stat_func, bin_size = 500e
 }
 
 
-build_gr <- function(contact_matrix, chrom, bin_size, genome = NULL) {
+build_gr <- function(contact_matrix, chrom, bin_size, seqinfo = NULL) {
   stopifnot(length(chrom) == 1)
 
   gr <- GenomicRanges::GRanges(seqnames = chrom,
-                               IRanges::IRanges(contact_matrix$start1 + 1, width = bin_size))
-  if (!is.null(genome))
-    seqinfo(gr) <- GenomeInfoDb::Seqinfo(genome = genome)
+                               IRanges::IRanges(contact_matrix$start1 + 1, width = bin_size),
+                               seqinfo = seqinfo)
 
   ranges2 <- IRanges::IRanges(contact_matrix$start2 + 1, width = bin_size)
   df <- contact_matrix%>% select(-c(1:2)) %>% DataFrame()
@@ -192,7 +205,7 @@ build_gr <- function(contact_matrix, chrom, bin_size, genome = NULL) {
   gr
 }
 
-
+#' @export
 contact_matrix <-
   function(frag,
            bin_size = 500e3L,
@@ -200,8 +213,7 @@ contact_matrix <-
            subsample = 10e3L,
            min_sample_size = 100L,
            bootstrap = 1L,
-           seed = NULL,
-           genome = NULL) {
+           seed = NULL) {
     chrom <- unique(seqnames(frag))
     stopifnot(length(chrom) >= 1)
 
@@ -209,7 +221,7 @@ contact_matrix <-
       frag <- frag[seqnames(frag) == chrom]
 
       fraglen <-
-        fraglen_over_window(frag, bin_size = bin_size, genome = genome)
+        fraglen_over_window(frag, bin_size = bin_size)
 
       plan <- cofrag_plan(fraglen, bin_size = bin_size)
       calc_contact_matrix(
@@ -224,7 +236,7 @@ contact_matrix <-
         bin_size = bin_size,
         seed = seed
       ) %>%
-        build_gr(chrom = chrom, bin_size = bin_size, genome = genome)
+        build_gr(chrom = chrom, bin_size = bin_size, seqinfo = GenomicRanges::seqinfo(frag))
     }) %>%
       do.call(c, args = .)
   }
