@@ -1,6 +1,4 @@
-library(here)
-library(tidyverse)
-library(magrittr)
+#!/usr/bin/env Rscript
 
 stop_quietly <- function() {
   opt <- options(show.error.messages = FALSE)
@@ -30,6 +28,9 @@ stop_quietly <- function() {
 # )
 
 if (interactive()) {
+  library(tidyverse)
+  library(magrittr)
+
   if (is.null(get0("script_args")))
     stop_quietly()
 
@@ -96,6 +97,10 @@ if (interactive()) {
       args = commandArgs(trailingOnly = TRUE),
       convert_hyphens_to_underscores = TRUE
     )
+
+  library(tidyverse)
+  library(magrittr)
+
   if (is.null(script_args$seed)) {
     script_args$seed <- round(runif(1) * 1e6L)
     logging::loginfo(str_interp("Randomly pick a seed: ${script_args$seed}"))
@@ -127,6 +132,9 @@ comments <- c(
     paste0(name, "=", v_str)
   })
 )
+
+library(here)
+
 
 logging::loginfo(str_interp("Argument summary:"))
 comments %>% purrr::walk(function(v) logging::loginfo(v))
