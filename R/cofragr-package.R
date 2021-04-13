@@ -1,6 +1,7 @@
 # R package for cofragmentation analysis
 
 #' @importFrom dplyr `%>%` tibble as_tibble mutate rename select filter group_by ungroup summarize arrange inner_join lag
+#' @importFrom stringr str_interp str_split str_detect str_sort str_match
 #' @importFrom purrr map2_dfr map_dbl map
 #' @importFrom tidyr expand_grid
 #' @importFrom magrittr `%<>%`
