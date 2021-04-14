@@ -6,26 +6,19 @@ stop_quietly <- function() {
   stop()
 }
 
+
 # # example
 # script_args <- list(
-#   input = here("sandbox/Pilot2-9.hg19.frag.bed.gz"),
+#   input = here("sandbox/Pilot2-9.cofrag_cm.bed.gz"),
 #   output_dir = here("sandbox/"),
 #   sample_id = "T1",
-#   metrics = "ks",
-#   genome = "hs37-1kg",
 #   res = 500e3L,
-#   ncores = 6L,
-#   bootstrap = 3L,
-#   subsample = 10e3L,
-#   seed = 1228L,
 #   chroms = c("20", "21", "22"),
-#   exclude_chroms = c("18", "20"),
-#   min_mapq = 30L,
-#   min_fraglen = 50L,
-#   max_fraglen = 500L,
-#   intersect_region = NULL, # here("sandbox/cofrag/cfEW1.cna.neutral.bed"),
-#   exclude_region = "encode.blacklist.hs37-1kg"
+#   method = "NONE",
+#   juicer = NULL,
+#   java = "java"
 # )
+
 
 if (interactive()) {
   library(tidyverse)
@@ -84,6 +77,7 @@ if (interactive()) {
 # Build comment lines
 comments <- c(
   paste0("cofragr version: ", as.character(packageVersion("cofragr"))),
+  paste0("hictools version: ", as.character(packageVersion("hictools"))),
   paste0("bedtorch version: ", as.character(packageVersion("bedtorch"))),
   # All items in script_args
   names(script_args) %>% purrr::map_chr(function(name) {
@@ -101,7 +95,45 @@ library(here)
 logging::loginfo(str_interp("Argument summary:"))
 comments %>% purrr::walk(function(v) logging::loginfo(v))
 
+all_chroms <- system(str_interp("tabix -l ${script_args$input}"), intern = TRUE)
+logging::loginfo(
+  str_interp(
+    "Found ${length(all_chroms)} chromosomes: ${paste(all_chroms, collapse = \",\")}"
+  )
+)
 
+# Filter chroms
+if (!is.null(script_args$chroms))
+  all_chroms <- intersect(all_chroms, script_args$chroms)
+if (!is.null(script_args$exclude_chroms))
+  all_chroms <- setdiff(all_chroms, script_args$exclude_chroms)
+logging::loginfo(
+  str_interp(
+    "Process ${length(all_chroms)} chromosomes: ${paste(all_chroms, collapse = \",\")}"
+  )
+)
+
+comps <- all_chroms %>% map(function(chrom) {
+  hic_data <-
+    hictools::load_hic_genbed(
+      script_args$input,
+      chrom = chrom,
+      resol = script_args$res,
+      matrix = "oe",
+      norm = "NONE"
+    )
+  hictools::compartment_juicer(hic_data, standard = "gene_density.hg19")
+}) %>%
+  data.table::rbindlist()
+
+
+system(str_interp("mkdir -p ${script_args$output_dir}"))
+cofrag_comp_file <- str_interp("${script_args$output_dir}/${script_args$sample_id}.compartment.bedGraph.gz")
+logging::loginfo(str_interp("Write compartment scores: ${cofrag_comp_file}"))
+
+bedtorch::write_bed(comps, file_path = cofrag_comp_file, comments = comments)
+
+logging::loginfo(str_interp("Analysis completed, with results located at ${script_args$output_dir}"))
 
 
 

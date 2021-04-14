@@ -58,14 +58,6 @@ fraglen_over_window <- function(frag, bin_size = 500e3L) {
   chrom <- unique(seqnames(frag))
   stopifnot(length(chrom) == 1)
 
-  # if (is.null(genome)) {
-  #   # Get the genome name. E.g. GRCh37
-  #   genome <- unique(GenomeInfoDb::genome(frag))
-  #   stopifnot(length(genome) == 1)
-  #   if (!is.na(genome))
-  #     genome <- as.character(genome)
-  # }
-
   # Find mid-points
   midpoints <-
     as.integer(round(start(frag) + (width(frag) - 1) / 2))
@@ -73,23 +65,12 @@ fraglen_over_window <- function(frag, bin_size = 500e3L) {
   start(frag) <- midpoints
   width(frag) <- 1
 
-  # if (is.null(genome) || is.na(genome)) {
-    window <-
-      bedtorch::make_windows(
-        window_size = bin_size,
-        chrom = chrom,
-        chrom_sizes = data.table::data.table(chrom = as.character(chrom),
-                                             size = as.integer(max(end(
-                                               frag
-                                             ))))
-      )
-  # }
-  # else {
-  #   window <-
-  #     bedtorch::make_windows(window_size = bin_size,
-  #                            chrom = chrom,
-  #                            genome = genome)
-  # }
+  window <-
+    bedtorch::make_windows(
+      window_size = bin_size,
+      chrom = chrom,
+      genome = GenomeInfoDb::genome(seqinfo(frag)) %>% unique()
+    )
 
   hits <- GenomicRanges::findOverlaps(frag, window)
   as_tibble(hits) %>%
@@ -118,7 +99,7 @@ cofrag_plan <- function(fraglen, bin_size = 500e3L) {
 
   plan <- expand_grid(start1 = seq(min_start, max_start, by = bin_size),
                       start2 = seq(min_start, max_start, by = bin_size)) %>%
-    filter(start1 < start2) %>%
+    filter(start1 <= start2) %>%
     arrange(start1, start2)
 
   fraglen %<>% select(start) %>% mutate(id = seq.int(start))
@@ -146,11 +127,14 @@ stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
       len2 <- sample(len2, size = subsample, replace = TRUE)
       suppressWarnings(ks.test(len1, len2)$p.value)
     })
+    # Attention: if you calculate mean(pvalues) and then calculate score, it doesn't work
+    # The compartment scores will look weird.
+    score <- median(-log10(2e-16) + log10(pmax(2e-16, v)))
     p_value <- mean(v)
     p_value_sd <- sd(v)
 
     tibble(
-      score = min(16,-log10(p_value)),
+      score = score,
       n_frag1 = n_frag1,
       n_frag2 = n_frag2,
       p_value = p_value,
@@ -181,7 +165,6 @@ calc_contact_matrix <- function(fraglen, cofrag_plan, stat_func, bin_size = 500e
     idx_end = tail(plan_idx,-1) - 1,
     .combine = "rbind",
     .multicombine = TRUE
-    # .export = c("fraglen", "cofrag_plan")
   ) %dorng% {
     id_list_1 <- cofrag_plan$id.1[idx_start:idx_end]
     id_list_2 <- cofrag_plan$id.2[idx_start:idx_end]

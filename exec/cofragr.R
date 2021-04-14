@@ -121,6 +121,7 @@ if (interactive()) {
 # Build comment lines
 comments <- c(
   paste0("cofragr version: ", as.character(packageVersion("cofragr"))),
+  paste0("hictools version: ", as.character(packageVersion("hictools"))),
   paste0("bedtorch version: ", as.character(packageVersion("bedtorch"))),
   # All items in script_args
   names(script_args) %>% purrr::map_chr(function(name) {
