@@ -10,6 +10,7 @@ WALL_TIME_MAX = config.get("WALL_TIME_MAX", 2880)
 CORE_FACTOR = float(config.get("CORE_FACTOR", 1))
 COFRAG_CORE = config.get("COFRAG_CORE", 4)
 BOOTSTRAP = config.get("BOOTSTRAP", 50)
+STANDARD_COMP = config.get("STANDARD_COMP", "gene_density.hg19")
 
 # Default base directory for data files. Default: ./data
 DATA_DIR = config.get("DATA_DIR", os.path.abspath("data"))
@@ -54,7 +55,7 @@ rule cofrag_cm:
 
 rule cofrag_cm_merge:
     input: expand("temp/{{sid}}.chr{chrom}.cofrag_cm.bed.gz", chrom=range(1, 23))
-    output: 
+    output:
         cm="result/{sid}.cofrag_cm.bed.gz",
         cm_index="result/{sid}.cofrag_cm.bed.gz.tbi"
     shell:
@@ -78,7 +79,7 @@ rule cofrag_cm_merge:
 
         mv "$output_file".gz {output.cm}.tmp
         mv {output.cm}.tmp {output.cm}
-        mv "$output_file".gz.tbi {output.cm_index}        
+        mv "$output_file".gz.tbi {output.cm_index}
         """
 
 # def determine_ifs_cores(chrom, factor=1):
@@ -101,11 +102,11 @@ rule cofrag_cm_merge:
 
 
 # rule ifs:
-#     input: 
+#     input:
 #         frag=expand("frag/{sid}.hg19.frag.bed.gz", sid=["res_merged", "non_merged"]),
 #         gc="data/human_g1k_v37.gc20bp.bed.gz",
 #         mappability="data/wgEncodeDukeMapabilityUniqueness35bp.hs37-1kg.20bp.bedGraph.gz"
-#     output: 
+#     output:
 #         ifs=temp("results/all.chr{chrom}.ifs.raw.bedGraph.gz"),
 #         ifs_idx=temp("results/all.chr{chrom}.ifs.raw.bedGraph.gz.tbi")
 #     log: "results/all.chr{chrom}.ifs.raw.log"
@@ -135,12 +136,12 @@ rule cofrag_cm_merge:
 #         """
 
 # rule hotspot:
-#     input: 
+#     input:
 #         ifs="results/all.chr{chrom}.ifs.raw.bedGraph.gz",
 #         ifs_idx="results/all.chr{chrom}.ifs.raw.bedGraph.gz.tbi",
 #         gc="data/human_g1k_v37.gc20bp.bed.gz",
 #         mappability="data/wgEncodeDukeMapabilityUniqueness35bp.hs37-1kg.20bp.bedGraph.gz"
-#     output: 
+#     output:
 #         ifs=temp("results/all.chr{chrom}.ifs.bedGraph.gz"),
 #         ifs_idx=temp("results/all.chr{chrom}.ifs.bedGraph.gz.tbi"),
 #         hotspot=temp("results/all.chr{chrom}.hotspot.bed.gz"),
@@ -178,7 +179,7 @@ rule cofrag_cm_merge:
 
 
 # rule merge:
-#     input: 
+#     input:
 #         ifs=expand("results/all.chr{chrom}.ifs.bedGraph.gz", chrom=list(range(1, 23))),
 #         ifs_idx=expand("results/all.chr{chrom}.ifs.bedGraph.gz.tbi", chrom=list(range(1, 23))),
 #         hotspot=expand("results/all.chr{chrom}.hotspot.bed.gz", chrom=list(range(1, 23))),

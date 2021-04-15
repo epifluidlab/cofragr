@@ -20,7 +20,7 @@ Depends:
 Imports:
     tidyverse,
     data.table,
-    bedtorch (>= 0.1.11.9001),
+    bedtorch (>= 0.1.11.9002),
     hictools (>= 0.1.3.9002),
     GenomicRanges,
     here,
@@ -29,3 +29,5 @@ Imports:
     doParallel,
     doRNG
 Remotes: 
+    haizi-zh/hictools,
+    haizi-zh/bedtorch

@@ -43,11 +43,11 @@ if (interactive()) {
       #   default = NULL,
       #   help = "A standard Hi-C map (.hic file) used for calculating HiCRep correlation scores"
       # ),
-      # optparse::make_option(
-      #   c("--standard-compartment"),
-      #   default = NULL,
-      #   help = "A standard compartment track (BED format) for calculating compartment correlation scores"
-      # ),
+      optparse::make_option(
+        c("--standard-compartment"),
+        default = NULL,
+        help = "A standard compartment track (BED format) for calculating compartment correlation scores"
+      ),
       optparse::make_option(c("--juicer"), default = NULL,
                             help = "Path to the .jar file Juicer tools. If not provided, will download from Internet"),
       optparse::make_option(c("--java"), default = "java",
@@ -122,9 +122,17 @@ comps <- all_chroms %>% map(function(chrom) {
       matrix = "oe",
       norm = "NONE"
     )
-  hictools::compartment_juicer(hic_data, standard = "gene_density.hg19")
-}) %>%
-  data.table::rbindlist()
+
+  if (!is.null(script_args$standard_compartment))
+    standard_comp <- bedtorch::read_bed(script_args$standard_compartment, range = chrom, use_gr = FALSE)
+  else
+    standard_comp <- "gene_density.hg19"
+
+  comp <- hictools::compartment_juicer(hic_data, standard = standard_comp)
+  comp[, score := bedtorch::rollmean(score, k = 3, na_pad = TRUE, na.rm = TRUE, align = "center")]
+  comp[, score := ifelse(is.infinite(score) | is.nan(score), NA, score)]
+  comp
+}) %>% data.table::rbindlist()
 
 
 system(str_interp("mkdir -p ${script_args$output_dir}"))
