@@ -1,6 +1,6 @@
 # cofragr pipeline
 
-localrules: all, merge
+localrules: all, cofrag_cm_merge, cofrag_compartment, compartment_bigwig
 
 # >>> Configuration >>>
 FULL_CORES = config.get("FULL_CORES", 16)
@@ -80,6 +80,69 @@ rule cofrag_cm_merge:
         mv "$output_file".gz {output.cm}.tmp
         mv {output.cm}.tmp {output.cm}
         mv "$output_file".gz.tbi {output.cm_index}
+        """
+
+
+rule cofrag_compartment:
+    input:
+        cm="result/{sid}.cofrag_cm.bed.gz",
+        cm_index="result/{sid}.cofrag_cm.bed.gz.tbi"
+    output:
+        comp="result/{sid}.compartment.bedGraph.gz",
+        comp_index="result/{sid}.compartment.bedGraph.gz.tbi",
+    log: "log/{sid}.compartment.log"
+    params:
+        label=lambda wildcards: f"cofrag_compartment.{wildcards.sid}",
+        standard_comp=STANDARD_COMP
+    threads: 1
+    resources:
+        mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
+        time=WALL_TIME_MAX,
+        time_min=300
+    shell:
+        """
+        tmpdir=$(mktemp -d)
+        cofragr_comp.R \
+        -i {input.cm} \
+        -o "$tmpdir" \
+        -s {wildcards.sid} \
+        --res 500000 \
+        --standard-compartment {params.standard_comp} \
+        2>&1 | tee {log}
+
+        output_name={wildcards.sid}.compartment.bedGraph.gz
+        mv "$tmpdir"/"$output_name" {output.comp}.tmp
+        mv {output.comp}.tmp {output.comp}
+        mv "$tmpdir"/"$output_name".tbi {output.comp_index}
+        """
+
+
+rule compartment_bigwig:
+    input:
+        comp="result/{sid}.compartment.bedGraph.gz",
+        chrom_sizes="human_g1k_v37.chrom.sizes"
+    output:
+        "result/{sid}.compartment.bw",
+    params:
+        label=lambda wildcards: f"compartment_bigwig.{wildcards.sid}",
+    threads: 1
+    resources:
+        mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
+        time=WALL_TIME_MAX,
+        time_min=300
+    shell:
+        """
+        tmpdir=$(mktemp -d)
+
+        cat {input.chrom_sizes} |
+        bioawk -t '{{$3=$2;$2=0;print}}'|
+        bedtools intersect \
+        -a {input.comp} -b - |
+        sort -k1,1 -k2,2n | bioawk -t '$4!="."' > "$tmpdir"/comp.bedGraph
+
+        bedGraphToBigWig "$tmpdir"/comp.bedGraph {input.chrom_sizes} "$tmpdir"/comp.bw
+
+        mv "$tmpdir"/comp.bw {output}
         """
 
 # def determine_ifs_cores(chrom, factor=1):
