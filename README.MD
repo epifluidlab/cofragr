@@ -46,7 +46,7 @@ You can learn more about **devtools** and get help with its installation [here](
 
 ### Installation
 
-Now that you've downloaded **devtools**, you can use the follwing command to install the package:
+Now that you've downloaded **devtools**, you can use the following command to install the package:
 
 ```R
 devtools::install_github("epifluidlab/cofragr")
