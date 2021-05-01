@@ -70,7 +70,9 @@ cofragr::read_fragments(file_path, [options])
 
 ###### Options
 
-*`cofragr::read_fragments(file_path, range = NULL, genome = NULL)`*
+```
+cofragr::read_fragments(file_path, range = NULL, genome = NULL)
+```
 
 `range; default: range = NULL`
 
@@ -88,7 +90,7 @@ Again, you can read more about the options behind `range` and `genome` [here](ht
 
 ##### contact_matrix
 
-Calling this function will calculate the contact from the fragment data file, which should have already been called by the `read_fragments` function. 
+Calling this function will calculate the contact matrix from the fragment data file, which should have already been called by the `read_fragments` function. 
 
 To call the function in R, use:
 
@@ -100,7 +102,9 @@ Note that `frag` is already defined as the fragment file as a result of the `rea
 
 ###### Options
 
-*`cofragr::contact_matrix(frag, bin_size = 500e3L, n_workers = 1L, subsample = 10e3L, min_sample_size = 100L, bootstrap = 1L, seed = NULL)`*
+```
+cofragr::contact_matrix(frag, bin_size = 500e3L, n_workers = 1L, subsample = 10e3L, min_sample_size = 100L, bootstrap = 1L, seed = NULL)
+```
 
 `bin_size; default: bin_size = 500e3L`
 
@@ -141,8 +145,25 @@ Note that `frag` is already defined as the fragment file as a result of the `rea
 
 ##### write_contact_matrix
 
-cofragr::write_contact_matrix(cofrag_cm, file_path = cofrag_cm_file, comments = comments)
-## Roadmap
+Calling this function will write the contact matrix to a specified filepath; the contact matrix should have already been calculated by the `contact_matrix` function. 
+
+To call the function in R, use:
+
+```
+cofragr::write_contact_matrix(cm, file_path, [OPTIONS])
+```
+
+###### Options
+
+```
+cofragr::write_contact_matrix(cm, file_path, comments = NULL)
+```
+
+`comments; default: comments = NULL`
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 
 ## Contributing
 
