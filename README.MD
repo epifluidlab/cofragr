@@ -149,17 +149,4 @@ See `LICENSE` for more information.
 
 * Haizi Zheng haizi.zh@gmail.com
 * Yaping Liu lyping1986@gmail.com
-
-## Citation
-
-<div id="refs" class="references csl-bib-body hanging-indent">
-
-<div id="ref-1" class="csl-entry">
-
-Spatial co-fragmentation pattern of cell-free DNA recapitulates in vivo chromatin organization and identifies tissues-of-origin
-Yaping Liu, Tzu-Yu Liu, David E. Weinberg, Brandon W. White, Chris J. De La Torre, Catherine L. Tan, Anthony D. Schmitt, Siddarth Selvaraj, Vy Tran, Louise C. Laurent, Luc Cabel, François-Clément Bidard, Girish Putcha, Imran S. Haque
-*bioRxiv* 564773; doi: https://doi.org/10.1101/564773
-
-</div>
-
-</div>
+* Ravi Bandaru ravi14.bandaru@gmail.com
