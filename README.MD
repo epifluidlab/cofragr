@@ -24,6 +24,8 @@
 
 ## About The Project
 
+cofragr is an R package that can be used to calculated the co-fragmentation patterns of DNA.
+
 ## Getting Started
 
 ### Prerequisites
