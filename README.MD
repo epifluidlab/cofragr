@@ -14,11 +14,8 @@
       </ul>
     </li>
     <li><a href="#usage">Usage</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#contributing">Contributing</a></li>
     <li><a href="#license">License</a></li>
-    <li><a href="#contact">Contact</a></li>
-    <li><a href="#acknowledgements">Acknowledgements</a></li>
+    <li><a href="#citation">Citation</a></li>
   </ol>
 </details>
 
@@ -153,7 +150,7 @@ See `LICENSE` for more information.
 * Haizi Zheng haizi.zh@gmail.com
 * Yaping Liu lyping1986@gmail.com
 
-## Citations
+## Citation
 
 <div id="refs" class="references csl-bib-body hanging-indent">
 
