@@ -110,38 +110,25 @@ cofragr::contact_matrix(frag, bin_size = 500e3L, n_workers = 1L, subsample = 10e
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-
 `n_workers; default: n_workers = 1L`
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Specifies the number of workers for the task at hand.
 
 `subsample; default: subsample = 10e3L`
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-
 `min_sample_size; default: min_sample_size = 100L`
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 
 
 `bootstrap; default: bootstrap = 1L`
-
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 
 `seed; default: seed = NULL`
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-
 
 ##### write_contact_matrix
 
@@ -161,11 +148,7 @@ cofragr::write_contact_matrix(cm, file_path, comments = NULL)
 
 `comments; default: comments = NULL`
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-
-## Contributing
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Allows the addition of a character vector to be appended at the top of the written BED file as a header.
 
 ## License
 
@@ -173,5 +156,23 @@ See `LICENSE` for more information.
 
 ## Contact
 
-## Acknowledgements
+* Haizi Zheng haizi.zh@gmail.com
+* Yaping Liu lyping1986@gmail.com
+
+## Citations
+
+<div id="refs" class="references csl-bib-body hanging-indent">
+
+<div id="ref-1" class="csl-entry">
+
+Spatial co-fragmentation pattern of cell-free DNA recapitulates in vivo chromatin organization and identifies tissues-of-origin
+Yaping Liu, Tzu-Yu Liu, David E. Weinberg, Brandon W. White, Chris J. De La Torre, Catherine L. Tan, Anthony D. Schmitt, Siddarth Selvaraj, Vy Tran, Louise C. Laurent, Luc Cabel, François-Clément Bidard, Girish Putcha, Imran S. Haque
+*bioRxiv* 564773; doi: https://doi.org/10.1101/564773
+
+</div>
+
+</div>
+
+
+
 
