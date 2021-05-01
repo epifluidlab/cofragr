@@ -108,7 +108,7 @@ cofragr::contact_matrix(frag, bin_size = 500e3L, n_workers = 1L, subsample = 10e
 
 `bin_size; default: bin_size = 500e3L`
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Specifies the size of the bins for the contact matrix in base-pair units.
 
 `n_workers; default: n_workers = 1L`
 
@@ -116,19 +116,11 @@ cofragr::contact_matrix(frag, bin_size = 500e3L, n_workers = 1L, subsample = 10e
 
 `subsample; default: subsample = 10e3L`
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-
-`min_sample_size; default: min_sample_size = 100L`
-
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Specifies the sampling size for the contact matrix calculations.
 
 `bootstrap; default: bootstrap = 1L`
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-
-`seed; default: seed = NULL`
-
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Specifies the number of bootstrap samples in the contact matrix calculations.
 
 ##### write_contact_matrix
 
