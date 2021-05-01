@@ -172,7 +172,3 @@ Yaping Liu, Tzu-Yu Liu, David E. Weinberg, Brandon W. White, Chris J. De La Torr
 </div>
 
 </div>
-
-
-
-
