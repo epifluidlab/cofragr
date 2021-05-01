@@ -56,6 +56,92 @@ Congratulations! You've successfully downloaded and installed **cofragr**!
 
 ## Usage
 
+There are three core functions to this R package:
+
+##### read_fragments
+
+Calling this function will read the fragment data file, which is typically a BED file. Since this functions uses the package **[bedtools](https://haizi-zh.github.io/bedtorch/)** to read the fragment files, the arguments/options for `range` and `genome` will follow the same format. 
+
+To call the function in R, use:
+
+```
+cofragr::read_fragments(file_path, [options])
+```
+
+###### Options
+
+*`cofragr::read_fragments(file_path, range = NULL, genome = NULL)`*
+
+`range; default: range = NULL`
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Specifies the ranges of the BED file that read_fragments will read.
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Note that `range` follows the standard genomic range notation, ex. "chr1:1001-2000". 
+
+`genome; default: genome = NULL`
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Specifies the reference genome for the BED file in question.
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Note that `genome` can take any of the `genome` arguments that [`GenomeInfoDb::Seqinfo()`](https://rdrr.io/bioc/GenomeInfoDb/man/Seqinfo-class.html) can.
+
+Again, you can read more about the options behind `range` and `genome` [here](https://haizi-zh.github.io/bedtorch/reference/read_bed.html).
+
+##### contact_matrix
+
+Calling this function will calculate the contact from the fragment data file, which should have already been called by the `read_fragments` function. 
+
+To call the function in R, use:
+
+```
+cofragr::contact_matrix(frag, [options])
+```
+
+Note that `frag` is already defined as the fragment file as a result of the `read_fragments` function.
+
+###### Options
+
+*`cofragr::contact_matrix(frag, bin_size = 500e3L, n_workers = 1L, subsample = 10e3L, min_sample_size = 100L, bootstrap = 1L, seed = NULL)`*
+
+`bin_size; default: bin_size = 500e3L`
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+`n_workers; default: n_workers = 1L`
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+`subsample; default: subsample = 10e3L`
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+`min_sample_size; default: min_sample_size = 100L`
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+`bootstrap; default: bootstrap = 1L`
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+`seed; default: seed = NULL`
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+
+##### write_contact_matrix
+
+cofragr::write_contact_matrix(cofrag_cm, file_path = cofrag_cm_file, comments = comments)
 ## Roadmap
 
 ## Contributing
