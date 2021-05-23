@@ -139,7 +139,7 @@ stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
     n_frag2 <- length(len2)
     if (min(n_frag1, n_frag2) < min_sample_size)
       return(NULL)
-      # return(tibble(n_frag1 = n_frag1, n_frag2 = n_frag2, bootstrap = NA, p_value = NA))
+    # return(tibble(n_frag1 = n_frag1, n_frag2 = n_frag2, bootstrap = NA, p_value = NA))
 
     v <- purrr::map_dbl(seq.int(bootstrap), function(idx) {
       # v <- seq.int(bootstrap) %>% map_dbl(function(idx) {
@@ -199,10 +199,10 @@ calc_contact_matrix <- function(fraglen,
       id_list_2 <-
         cofrag_plan$id.2[plan_idx[idx]:(plan_idx[idx + 1] - 1)]
       # Only keep fraglen rows that will be used in the job
-      fraglen_map <- new.env()
+      fraglen_map <- list()
       unique(c(id_list_1, id_list_2)) %>%
         walk(function(id) {
-          fraglen_map[[as.character(id)]] <- fraglen$len[[id]]
+          fraglen_map[[as.character(id)]] <<- fraglen$len[[id]]
         })
 
       list(
@@ -212,6 +212,9 @@ calc_contact_matrix <- function(fraglen,
         fraglen_map = fraglen_map
       )
     })
+
+  gc()
+  logging::loginfo(str_interp("Completed building plans. Current memory usage: ${as.numeric(lobstr::mem_used()) / 1e6}"))
 
   if (!is.null(seed))
     set.seed(seed)
@@ -224,14 +227,15 @@ calc_contact_matrix <- function(fraglen,
   ) %dorng% {
     block_id <- data$block_id
 
+    id_list_1 <- data$id_list_1
+    id_list_2 <- data$id_list_2
+    fraglen_map <- data$fraglen_map
+
     worker_name <-
       paste(Sys.info()[['nodename']], Sys.getpid(), sep = '-')
     mem_mb <- as.numeric(lobstr::mem_used()) / 1e6
     logging::loginfo(stringr::str_interp("${worker_name}: processing ${block_id}/${n_blocks}, memory used: ${mem_mb} MB"))
 
-    id_list_1 <- data$id_list_1
-    id_list_2 <- data$id_list_2
-    fraglen_map <- data$fraglen_map
 
     stopifnot(length(id_list_1) == length(id_list_2))
 
