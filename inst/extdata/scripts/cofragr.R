@@ -209,7 +209,6 @@ filter_fraglen <- function(frag, min_fraglen = NULL, max_fraglen = NULL) {
 }
 
 cofrag_cm <- all_chroms %>% map(function(chrom) {
-  browser()
   logging::loginfo(str_interp("Loading fragments for chromosome ${chrom}"))
 
   frag <- cofragr::read_fragments(file_path = script_args$input, range = chrom, genome = script_args$genome)
