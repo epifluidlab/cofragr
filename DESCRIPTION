@@ -8,9 +8,6 @@ Authors@R:
            email = "haizi.zh@gmail.com")
 Description: Perform cofragmentation analysis for cfDNA fragments. Obtain the contact matrix and the 3D genome compartment profile.
 License: MIT + file LICENSE
-Suggests: 
-    testthat (>= 3.0.0)
-Config/testthat/edition: 3
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)

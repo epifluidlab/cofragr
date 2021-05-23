@@ -7,7 +7,7 @@
 #' @importFrom magrittr `%<>%`
 #' @importFrom GenomicRanges makeGRangesFromDataFrame findOverlaps mcols `mcols<-` pintersect ranges `ranges<-` width `width<-` seqnames start `start<-` end `end<-` seqinfo `seqinfo<-`
 #' @importFrom S4Vectors Rle DataFrame from to
-#' @importFrom parallel makeForkCluster stopCluster
+#' @importFrom parallel makeCluster makeForkCluster stopCluster
 #' @importFrom doParallel registerDoParallel
 #' @importFrom doRNG `%dorng%`
 #' @importFrom foreach foreach `%do%` `%dopar%`

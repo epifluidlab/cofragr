@@ -209,6 +209,7 @@ filter_fraglen <- function(frag, min_fraglen = NULL, max_fraglen = NULL) {
 }
 
 cofrag_cm <- all_chroms %>% map(function(chrom) {
+  browser()
   logging::loginfo(str_interp("Loading fragments for chromosome ${chrom}"))
 
   frag <- cofragr::read_fragments(file_path = script_args$input, range = chrom, genome = script_args$genome)
@@ -249,8 +250,12 @@ cofrag_cm <- all_chroms %>% map(function(chrom) {
     return(NULL)
   }
 
+  fraglen <- preprocess_frag_bed(frag, bin_size = script_args$res)
+  # Explicitly remove frag to save memory
+  rm(frag)
+
   cofragr::contact_matrix(
-    frag,
+    fraglen,
     bin_size = script_args$res,
     n_workers = script_args$ncores,
     subsample = script_args$subsample,

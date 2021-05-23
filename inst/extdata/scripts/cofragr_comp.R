@@ -119,7 +119,7 @@ comps <- all_chroms %>% map(function(chrom) {
       script_args$input,
       chrom = chrom,
       resol = script_args$res,
-      matrix = "oe",
+      type = "observed",
       norm = "NONE"
     )
 

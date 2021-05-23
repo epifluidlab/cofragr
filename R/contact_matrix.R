@@ -1,3 +1,13 @@
+#' Read a fragment data file
+#'
+#' A fragment data file is essentially just a BED file. The reason we need a
+#' special function here to load a fragment data file is that, by convention,
+#' the data frame should contain a column representing MAPQ scores. However, the
+#' data file may not have a column header. Therefore, we may need to guess which
+#' column represents MAPQ scores.
+#'
+#' @param file_path path to the file.
+#' @param range read the entire file if `range` is `NULL`.
 #' @export
 read_fragments <- function(file_path, range = NULL, genome = NULL) {
   frag <- bedtorch::read_bed(file_path = file_path,
@@ -112,7 +122,16 @@ cofrag_plan <- function(fraglen, bin_size = 500e3L) {
 }
 
 
+# A function factory that generates a stat_func, which is used to calculate the
+# distance metrics between two collections of fragments
 stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
+  # We need to force early-evaluation, since the stat_func may be used in a
+  # %dopar% worker context. Failed to do so may leads to "object can't be found"
+  # error.
+  force(subsample)
+  force(min_sample_size)
+  force(bootstrap)
+
   function(len1, len2) {
     stopifnot(bootstrap >= 1)
 
@@ -122,7 +141,8 @@ stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
       return(NULL)
       # return(tibble(n_frag1 = n_frag1, n_frag2 = n_frag2, bootstrap = NA, p_value = NA))
 
-    v <- seq.int(bootstrap) %>% map_dbl(function(idx) {
+    v <- purrr::map_dbl(seq.int(bootstrap), function(idx) {
+      # v <- seq.int(bootstrap) %>% map_dbl(function(idx) {
       len1 <- sample(len1, size = subsample, replace = TRUE)
       len2 <- sample(len2, size = subsample, replace = TRUE)
       suppressWarnings(ks.test(len1, len2)$p.value)
@@ -133,7 +153,7 @@ stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
     p_value <- mean(v)
     p_value_sd <- sd(v)
 
-    tibble(
+    dplyr::tibble(
       score = score,
       n_frag1 = n_frag1,
       n_frag2 = n_frag2,
@@ -144,50 +164,96 @@ stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
 }
 
 
-calc_contact_matrix <- function(fraglen, cofrag_plan, stat_func, bin_size = 500e3L, n_workers = 1L, seed = NULL) {
+calc_contact_matrix <- function(fraglen,
+                                cofrag_plan,
+                                stat_func,
+                                bin_size = 500e3L,
+                                n_workers = 1L,
+                                seed = NULL) {
   if (n_workers > 1) {
-    cl <- makeForkCluster(n_workers)
+    # cl <- makeForkCluster(n_workers, outfile = "")
+    cl <- makeCluster(n_workers, outfile = "")
     registerDoParallel(cl)
-    logging::loginfo(str_interp("Successfully registered a cluster with ${n_workers} workers"))
+    logging::loginfo(str_interp(
+      "Successfully registered a cluster with ${n_workers} workers"
+    ))
     on.exit(stopCluster(cl), add = TRUE)
   }
 
+  # Label each row with row_id so that it's easier to retrieve any particular row
+  fraglen$id <- 1:nrow(fraglen)
+
+  # Divide fraglen into blocks
+  n_blocks <-
+    max(as.integer((
+      max(fraglen$start) - min(fraglen$start) + bin_size
+    ) / 10e6L), n_workers)
+
   # Divide the plan among workers
-  plan_idx = unique(floor(seq.int(1, nrow(cofrag_plan) + 1, length.out = n_workers + 1)))
+  plan_idx = unique(floor(seq.int(1, nrow(cofrag_plan) + 1, length.out = n_blocks + 1)))
   # Sanity check
   stopifnot(all(tail(plan_idx, -1) > tail(lag(plan_idx), -1)))
+  foreach_layout <- 1:(length(plan_idx) - 1) %>%
+    map(function(idx) {
+      id_list_1 <- cofrag_plan$id.1[plan_idx[idx]:(plan_idx[idx + 1] - 1)]
+      id_list_2 <-
+        cofrag_plan$id.2[plan_idx[idx]:(plan_idx[idx + 1] - 1)]
+      # Only keep fraglen rows that will be used in the job
+      fraglen_map <- new.env()
+      unique(c(id_list_1, id_list_2)) %>%
+        walk(function(id) {
+          fraglen_map[[as.character(id)]] <- fraglen$len[[id]]
+        })
+
+      list(
+        block_id = idx,
+        id_list_1 = id_list_1,
+        id_list_2 = id_list_2,
+        fraglen_map = fraglen_map
+      )
+    })
 
   if (!is.null(seed))
     set.seed(seed)
 
-  foreach(
-    idx_start = head(plan_idx,-1),
-    idx_end = tail(plan_idx,-1) - 1,
-    .combine = "rbind",
-    .multicombine = TRUE
-  ) %dorng% {
-    id_list_1 <- cofrag_plan$id.1[idx_start:idx_end]
-    id_list_2 <- cofrag_plan$id.2[idx_start:idx_end]
+  message(search())
 
-    map2_dfr(id_list_1,
-             id_list_2,
-             function(id.1, id.2) {
-               len1 <- fraglen$len[[id.1]]
-               len2 <- fraglen$len[[id.2]]
-               result <- stat_func(len1, len2)
-               if (!is.null(result))
-                 result %<>% mutate(id.1 = id.1, id.2 = id.2)
-               result
-             })
-  } %>%
-    inner_join(x = cofrag_plan, y = ., by = c("id.1", "id.2")) %>%
+  foreach(data = foreach_layout,
+          .export = "%>%",
+          .combine = "rbind",
+          .multicombine = TRUE) %dorng% {
+            block_id <- data$block_id
+
+            worker_name <-
+              paste(Sys.info()[['nodename']], Sys.getpid(), sep = '-')
+            mem_mb <- as.numeric(lobstr::mem_used()) / 1e6
+            message(stringr::str_interp("${worker_name}: memory used: ${mem_mb} MB"))
+            message(search())
+
+            id_list_1 <- data$id_list_1
+            id_list_2 <- data$id_list_2
+            fraglen_map <- data$fraglen_map
+
+            stopifnot(length(id_list_1) == length(id_list_2))
+
+            purrr::map_dfr(1:length(id_list_1), function(idx) {
+              id.1 <- id_list_1[idx]
+              id.2 <- id_list_2[idx]
+
+              len1 <- fraglen_map[[as.character(id.1)]]
+              len2 <- fraglen_map[[as.character(id.2)]]
+
+              result <- stat_func(len1, len2)
+              if (!is.null(result))
+                result <- dplyr::mutate(result, id.1 = id.1, id.2 = id.2)
+
+              result
+            })
+          } %>%
+    inner_join(x = cofrag_plan,
+               y = .,
+               by = c("id.1", "id.2")) %>%
     select(-c(id.1, id.2))
-    ## Cap the score at 16
-    # mutate(score0 = pmin(16, -log10(p_value))) %>%
-    ## Aggregate over bootstrap iterations
-    # group_by(start1, start2) %>%
-    # mutate(score = pmin(16, -log10(mean(p_value)))) %>%
-    # ungroup()
 }
 
 
@@ -206,24 +272,58 @@ build_gr <- function(contact_matrix, chrom, bin_size, seqinfo = NULL) {
   gr
 }
 
+
+#' Preprocess the fragment BED-like data frame
+#'
+#' This function takes a fragment BED as input. For each chromosome, return a
+#' new data frame where each row is for a specific position, associated with a
+#' vector that represents the lengths of all fragments at that position. The
+#' result is much more compact than the original BED-like data frame.
+#'
+#' Example of returned value:
+
+#' $`21`
+#' # A tibble: 74 x 2
+#' start len
+#' <int> <list>
+#'   1  9000000 <int [5,443]>
+#'   2  9500000 <int [59,183]>
+#'   3 10000000 <int [45,040]>
+#'   4 10500000 <int [96,504]>
+#'
+#' @return A list containing fragment lengths
+#' @export
+preprocess_frag_bed <- function(frag, bin_size) {
+  chrom_list <- unique(seqnames(frag))
+  result <- chrom_list %>%
+    map(function(chrom) {
+      frag <- frag[seqnames(frag) == chrom]
+      fraglen_over_window(frag, bin_size = bin_size)
+    })
+  names(result) <- chrom_list
+  result
+}
+
+
 #' @export
 contact_matrix <-
-  function(frag,
+  function(fraglen,
+           frag = NULL,
            bin_size = 500e3L,
            n_workers = 1L,
            subsample = 10e3L,
            min_sample_size = 100L,
            bootstrap = 1L,
            seed = NULL) {
-    chrom <- unique(seqnames(frag))
+    if (!is.null(frag)) {
+      stop("Using frag as input is deprecated. Use fraglen instead.")
+    }
+
+    chrom <- names(fraglen)
     stopifnot(length(chrom) >= 1)
 
-    chrom %>% map(function(chrom) {
-      frag <- frag[seqnames(frag) == chrom]
-
-      fraglen <-
-        fraglen_over_window(frag, bin_size = bin_size)
-
+    result <- chrom %>% map(function(chrom) {
+      fraglen <- fraglen[[chrom]]
       plan <- cofrag_plan(fraglen, bin_size = bin_size)
       calc_contact_matrix(
         fraglen,
@@ -237,7 +337,7 @@ contact_matrix <-
         bin_size = bin_size,
         seed = seed
       ) %>%
-        build_gr(chrom = chrom, bin_size = bin_size, seqinfo = GenomicRanges::seqinfo(frag))
+        build_gr(chrom = chrom, bin_size = bin_size)
     }) %>%
       do.call(c, args = .)
   }
