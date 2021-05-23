@@ -249,7 +249,7 @@ cofrag_cm <- all_chroms %>% map(function(chrom) {
     return(NULL)
   }
 
-  fraglen_list <- preprocess_frag_bed(frag, bin_size = script_args$res)
+  fraglen_list <- cofragr::preprocess_frag_bed(frag, bin_size = script_args$res)
   # Explicitly remove frag to save memory
   rm(frag)
 

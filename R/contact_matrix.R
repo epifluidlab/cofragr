@@ -179,10 +179,9 @@ calc_contact_matrix <- function(fraglen,
   }
 
   # Divide fraglen into blocks
-  n_blocks <-
-    max(as.integer((
-      max(fraglen$start) - min(fraglen$start) + bin_size
-    ) / 10e6L), n_workers)
+  n_blocks <- (max(fraglen$start) - min(fraglen$start) + bin_size) / 10e6L
+  n_blocks <- max(as.integer(round(n_blocks * (n_blocks + 1) / 2)), n_workers)
+  logging::loginfo(str_interp("Divided the task into ${n_blocks} segments"))
 
   # Divide the cofrag_plan among workers
   # plan_idx are the start and end boundaries of the segments
