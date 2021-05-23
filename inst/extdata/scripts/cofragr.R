@@ -249,12 +249,14 @@ cofrag_cm <- all_chroms %>% map(function(chrom) {
     return(NULL)
   }
 
-  fraglen <- preprocess_frag_bed(frag, bin_size = script_args$res)
+  fraglen_list <- preprocess_frag_bed(frag, bin_size = script_args$res)
   # Explicitly remove frag to save memory
   rm(frag)
 
+  logging::loginfo(str_interp("Completed preprocessing. Current memory usage: ${as.numeric(lobstr::mem_used()) / 1e6}"))
+
   cofragr::contact_matrix(
-    fraglen,
+    fraglen_list,
     bin_size = script_args$res,
     n_workers = script_args$ncores,
     subsample = script_args$subsample,

@@ -28,7 +28,8 @@ Imports:
     logging,
     optparse,
     doParallel,
-    doRNG
+    doRNG,
+    lobstr
 Remotes: 
     haizi-zh/hictools,
     haizi-zh/bedtorch,

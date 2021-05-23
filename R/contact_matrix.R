@@ -174,14 +174,9 @@ calc_contact_matrix <- function(fraglen,
     # cl <- makeForkCluster(n_workers, outfile = "")
     cl <- makeCluster(n_workers, outfile = "")
     registerDoParallel(cl)
-    logging::loginfo(str_interp(
-      "Successfully registered a cluster with ${n_workers} workers"
-    ))
+    logging::loginfo(str_interp("Successfully registered a cluster with ${n_workers} workers"))
     on.exit(stopCluster(cl), add = TRUE)
   }
-
-  # Label each row with row_id so that it's easier to retrieve any particular row
-  fraglen$id <- 1:nrow(fraglen)
 
   # Divide fraglen into blocks
   n_blocks <-
@@ -189,10 +184,15 @@ calc_contact_matrix <- function(fraglen,
       max(fraglen$start) - min(fraglen$start) + bin_size
     ) / 10e6L), n_workers)
 
-  # Divide the plan among workers
+  # Divide the cofrag_plan among workers
+  # plan_idx are the start and end boundaries of the segments
   plan_idx = unique(floor(seq.int(1, nrow(cofrag_plan) + 1, length.out = n_blocks + 1)))
   # Sanity check
-  stopifnot(all(tail(plan_idx, -1) > tail(lag(plan_idx), -1)))
+  stopifnot(all(tail(plan_idx,-1) > tail(lag(plan_idx),-1)))
+
+  # This is the main data input for doParallel jobs
+  # Each object in foreach_layout is a segment of cofrag_plan, and is provided
+  # to a particular worker
   foreach_layout <- 1:(length(plan_idx) - 1) %>%
     map(function(idx) {
       id_list_1 <- cofrag_plan$id.1[plan_idx[idx]:(plan_idx[idx + 1] - 1)]
@@ -216,40 +216,40 @@ calc_contact_matrix <- function(fraglen,
   if (!is.null(seed))
     set.seed(seed)
 
-  message(search())
+  foreach(
+    data = foreach_layout,
+    .export = "n_blocks",
+    .combine = "rbind",
+    .multicombine = TRUE
+  ) %dorng% {
+    block_id <- data$block_id
 
-  foreach(data = foreach_layout,
-          .export = "%>%",
-          .combine = "rbind",
-          .multicombine = TRUE) %dorng% {
-            block_id <- data$block_id
+    worker_name <-
+      paste(Sys.info()[['nodename']], Sys.getpid(), sep = '-')
+    mem_mb <- as.numeric(lobstr::mem_used()) / 1e6
+    logging::loginfo(stringr::str_interp("${worker_name}: processing ${block_id}/${n_blocks}, memory used: ${mem_mb} MB"))
 
-            worker_name <-
-              paste(Sys.info()[['nodename']], Sys.getpid(), sep = '-')
-            mem_mb <- as.numeric(lobstr::mem_used()) / 1e6
-            message(stringr::str_interp("${worker_name}: memory used: ${mem_mb} MB"))
-            message(search())
+    id_list_1 <- data$id_list_1
+    id_list_2 <- data$id_list_2
+    fraglen_map <- data$fraglen_map
 
-            id_list_1 <- data$id_list_1
-            id_list_2 <- data$id_list_2
-            fraglen_map <- data$fraglen_map
+    stopifnot(length(id_list_1) == length(id_list_2))
 
-            stopifnot(length(id_list_1) == length(id_list_2))
+    purrr::map_dfr(1:length(id_list_1), function(idx) {
+      id.1 <- id_list_1[idx]
+      id.2 <- id_list_2[idx]
 
-            purrr::map_dfr(1:length(id_list_1), function(idx) {
-              id.1 <- id_list_1[idx]
-              id.2 <- id_list_2[idx]
+      len1 <- fraglen_map[[as.character(id.1)]]
+      len2 <- fraglen_map[[as.character(id.2)]]
 
-              len1 <- fraglen_map[[as.character(id.1)]]
-              len2 <- fraglen_map[[as.character(id.2)]]
+      result <- stat_func(len1, len2)
+      if (!is.null(result))
+        result <-
+        dplyr::mutate(result, id.1 = id.1, id.2 = id.2)
 
-              result <- stat_func(len1, len2)
-              if (!is.null(result))
-                result <- dplyr::mutate(result, id.1 = id.1, id.2 = id.2)
-
-              result
-            })
-          } %>%
+      result
+    })
+  } %>%
     inner_join(x = cofrag_plan,
                y = .,
                by = c("id.1", "id.2")) %>%
@@ -307,7 +307,7 @@ preprocess_frag_bed <- function(frag, bin_size) {
 
 #' @export
 contact_matrix <-
-  function(fraglen,
+  function(fraglen_list,
            frag = NULL,
            bin_size = 500e3L,
            n_workers = 1L,
@@ -316,14 +316,14 @@ contact_matrix <-
            bootstrap = 1L,
            seed = NULL) {
     if (!is.null(frag)) {
-      stop("Using frag as input is deprecated. Use fraglen instead.")
+      stop("Using frag as input is deprecated. Use fraglen_list instead.")
     }
 
-    chrom <- names(fraglen)
+    chrom <- names(fraglen_list)
     stopifnot(length(chrom) >= 1)
 
     result <- chrom %>% map(function(chrom) {
-      fraglen <- fraglen[[chrom]]
+      fraglen <- fraglen_list[[chrom]]
       plan <- cofrag_plan(fraglen, bin_size = bin_size)
       calc_contact_matrix(
         fraglen,
