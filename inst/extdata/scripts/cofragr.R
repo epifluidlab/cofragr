@@ -253,6 +253,7 @@ cofrag_cm <- all_chroms %>% map(function(chrom) {
   fraglen_list <- cofragr::preprocess_frag_bed(frag, bin_size = script_args$res)
   # Explicitly remove frag to save memory
   rm(frag)
+  gc()
 
   logging::loginfo(str_interp("Completed preprocessing. Current memory usage: ${as.numeric(lobstr::mem_used()) / 1e6}"))
 

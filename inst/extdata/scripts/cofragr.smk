@@ -3,19 +3,24 @@
 localrules: all, cofrag_cm_merge, cofrag_compartment, compartment_bigwig
 
 # >>> Configuration >>>
-FULL_CORES = config.get("FULL_CORES", 16)
-PART_CORES = config.get("PART_CORES", 4)
 MEM_PER_CORE = config.get("MEM_PER_CORE", 1800)
 WALL_TIME_MAX = config.get("WALL_TIME_MAX", 2880)
-CORE_FACTOR = float(config.get("CORE_FACTOR", 1))
+
+# cofragr specific configuration
 COFRAG_CORE = config.get("COFRAG_CORE", 4)
+SUBSAMPLE = config.get("SUBSAMPLE", 10000)
+MIN_MAPQ = config.get("MIN_MAPQ", 30)
+MIN_FRAGLEN = config.get("MIN_FRAGLEN", 50)
+MAX_FRAGLEN = config.get("MAX_FRAGLEN", 350)
 BOOTSTRAP = config.get("BOOTSTRAP", 50)
+SEED = config.get("SEED", 1228)
+BLOCK_SIZE = config.get("BLOCK_SIZE", 10000000)
 STANDARD_COMP = config.get("STANDARD_COMP", "gene_density.hg19")
 
 # Default base directory for data files. Default: ./data
 DATA_DIR = config.get("DATA_DIR", os.path.abspath("data"))
 
-# programmatically locate the script 
+# programmatically locate the script
 def find_main_script(script_name):
     import subprocess
 
@@ -42,6 +47,12 @@ rule cofrag_cm:
     params:
         label=lambda wildcards: f"cofrag_cm.{wildcards.sid}.chr{wildcards.chrom}",
         bootstrap=BOOTSTRAP,
+        subsample=SUBSAMPLE,
+        seed=SEED,
+        min_mapq=MIN_MAPQ,
+        min_fraglen=MIN_FRAGLEN,
+        max_fraglen=MAX_FRAGLEN,
+        block_size=BLOCK_SIZE,
         main_script=lambda wildcards: find_main_script("cofragr.R"),
     threads: lambda wildcards, attempt: int(COFRAG_CORE * (0.5 + 0.5 * attempt))
     resources:
@@ -57,14 +68,17 @@ rule cofrag_cm:
         -o "$tmpdir" \
         -s {wildcards.sid} \
         -n {threads} \
+        --block-size {params.block_size} \
         --bootstrap {params.bootstrap} \
-        --subsample 10000 \
-        --seed 1228 \
+        --subsample {params.subsample} \
+        --seed {params.seed} \
         --chroms {wildcards.chrom} \
-        --min-mapq 30 \
-        --min-fraglen 50 --max-fraglen 350 \
+        --min-mapq {params.min_mapq} \
+        --min-fraglen {params.min_fraglen} \
+        --max-fraglen {params.max_fraglen} \
         2>&1 | tee {log}
 
+        ls -la "$tmpdir"
         output_name={wildcards.sid}.cofrag_cm.bed.gz
         mv "$tmpdir"/"$output_name" {output.cm}.tmp
         mv {output.cm}.tmp {output.cm}
@@ -72,7 +86,7 @@ rule cofrag_cm:
 
 rule cofrag_cm_merge:
     input: expand("temp/{{sid}}.chr{chrom}.cofrag_cm.bed.gz", chrom=range(1, 23))
-    output: 
+    output:
         cm="result/{sid}.cofrag_cm.bed.gz",
         cm_index="result/{sid}.cofrag_cm.bed.gz.tbi"
     shell:
@@ -96,15 +110,15 @@ rule cofrag_cm_merge:
 
         mv "$output_file".gz {output.cm}.tmp
         mv {output.cm}.tmp {output.cm}
-        mv "$output_file".gz.tbi {output.cm_index}        
+        mv "$output_file".gz.tbi {output.cm_index}
         """
 
 
 rule cofrag_compartment:
-    input: 
+    input:
         cm="result/{sid}.cofrag_cm.bed.gz",
         cm_index="result/{sid}.cofrag_cm.bed.gz.tbi"
-    output: 
+    output:
         comp="result/{sid}.compartment.bedGraph.gz",
         comp_index="result/{sid}.compartment.bedGraph.gz.tbi",
     log: "log/{sid}.compartment.log"
@@ -135,7 +149,7 @@ rule cofrag_compartment:
 
 
 rule compartment_bigwig:
-    input: 
+    input:
         comp="result/{sid}.compartment.bedGraph.gz",
         chrom_sizes="human_g1k_v37.chrom.sizes"
     output:

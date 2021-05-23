@@ -1,6 +1,6 @@
 Package: cofragr
 Title: R package for cofragmentation analysis
-Version: 0.1.1.1002
+Version: 0.1.1.1003
 Authors@R: 
     person(given = "Haizi",
            family = "Zheng",
