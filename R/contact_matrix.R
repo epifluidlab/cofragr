@@ -168,6 +168,7 @@ calc_contact_matrix <- function(fraglen,
                                 cofrag_plan,
                                 stat_func,
                                 bin_size = 500e3L,
+                                block_size = 10e6L,
                                 n_workers = 1L,
                                 seed = NULL) {
   if (n_workers > 1) {
@@ -179,7 +180,7 @@ calc_contact_matrix <- function(fraglen,
   }
 
   # Divide fraglen into blocks
-  n_blocks <- (max(fraglen$start) - min(fraglen$start) + bin_size) / 10e6L
+  n_blocks <- (max(fraglen$start) - min(fraglen$start) + bin_size) / block_size
   n_blocks <- max(as.integer(round(n_blocks * (n_blocks + 1) / 2)), n_workers)
   logging::loginfo(str_interp("Divided the task into ${n_blocks} segments"))
 
@@ -304,11 +305,17 @@ preprocess_frag_bed <- function(frag, bin_size) {
 }
 
 
+#' @param block_size The genomic range to be processed will be divided into
+#'   blocks, or segments, and assigned to workers. Each segment represents the
+#'   smallest unit of the jobs. `block_size` controls the size of the segment.
+#'   When there are more fragments, generally you need smaller `block_size` so
+#'   that each job will not consume to much memory.
 #' @export
 contact_matrix <-
   function(fraglen_list,
            frag = NULL,
            bin_size = 500e3L,
+           block_size = 10e6L,
            n_workers = 1L,
            subsample = 10e3L,
            min_sample_size = 100L,
@@ -328,6 +335,7 @@ contact_matrix <-
         fraglen,
         plan,
         n_workers = n_workers,
+        block_size = block_size,
         stat_func = stat_func_ks(
           subsample = subsample,
           min_sample_size = min_sample_size,

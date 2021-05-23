@@ -51,6 +51,7 @@ if (interactive()) {
       optparse::make_option(c("-g", "--genome"), default = "hs37-1kg",
                             help = "Reference genome for the input"),
       optparse::make_option(c("--res"), type = "integer", default = 500e3L),
+      optparse::make_option(c("--block-size"), type = "integer", default = 10e6L),
       optparse::make_option(c("-n", "--ncores"), type = "integer", default = 1L),
       optparse::make_option(c("--bootstrap"), type = "integer", default = 1L),
       optparse::make_option(c("--subsample"), type = "integer", default = NULL),
@@ -258,6 +259,7 @@ cofrag_cm <- all_chroms %>% map(function(chrom) {
   cofragr::contact_matrix(
     fraglen_list,
     bin_size = script_args$res,
+    block_size = script_args$block_size,
     n_workers = script_args$ncores,
     subsample = script_args$subsample,
     min_sample_size = 100L,
