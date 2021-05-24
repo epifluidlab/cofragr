@@ -14,6 +14,7 @@ stop_quietly <- function() {
 #   sample_id = "T1",
 #   res = 500e3L,
 #   chroms = c("20", "21", "22"),
+#   smooth = 3L,
 #   method = "NONE",
 #   juicer = NULL,
 #   java = "java"
@@ -36,7 +37,8 @@ if (interactive()) {
       optparse::make_option(c("--res"), type = "integer", default = 500e3L),
       optparse::make_option(c("--chroms"), default = NULL,
                             help = "Perform the analysis only for a selected group of chromosomes. Separated by colons, such as 12:16:X. If not provided, all chromosomes found in the input file will be used"),
-      optparse::make_option(c("--method"), default = "NONE"),
+      # optparse::make_option(c("--method"), default = ""),
+      # optparse::make_option(c("--smooth"), type = "integer", default = 3L, help = "Apply moving average on the compartment track. Sometimes this can remove some quirks and make the data more similar to Hi-C compartment tracks"),
       # optparse::make_option(
       #   c("--standard-hic"),
       #   type = "character",
@@ -113,33 +115,54 @@ logging::loginfo(
   )
 )
 
-comps <- all_chroms %>% map(function(chrom) {
-  hic_data <-
-    hictools::load_hic_genbed(
-      script_args$input,
-      chrom = chrom,
-      resol = script_args$res,
-      type = "observed",
-      norm = "NONE"
-    )
+comps <- expand_grid(
+  chrom = all_chroms,
+  smoothing = 1:3,
+  method = c("juicer", "hictools")
+) %>%
+  pmap(function(chrom, smoothing, method) {
+    hic_data <-
+      hictools::load_hic_genbed(
+        script_args$input,
+        chrom = chrom,
+        resol = script_args$res,
+        type = "oe",
+        norm = "NONE"
+      )
 
-  if (!is.null(script_args$standard_compartment))
-    standard_comp <- bedtorch::read_bed(script_args$standard_compartment, range = chrom, use_gr = FALSE)
-  else
-    standard_comp <- "gene_density.hg19"
+    if (!is.null(script_args$standard_compartment))
+      standard_comp <-
+        bedtorch::read_bed(script_args$standard_compartment,
+                           range = chrom,
+                           use_gr = FALSE)
+    else
+      standard_comp <- "gene_density.hg19"
 
-  comp <- hictools::compartment_juicer(hic_data, standard = standard_comp)
-  comp[, score := bedtorch::rollmean(score, k = 3, na_pad = TRUE, na.rm = TRUE, align = "center")]
-  comp[, score := ifelse(is.infinite(score) | is.nan(score), NA, score)]
-  comp
-}) %>% data.table::rbindlist()
+    if (method == "juicer") {
+      comps <-
+        hictools::compartment_juicer(hic_data, standard = standard_comp, smoothing = smoothing)
+    } else {
+      comps <-
+        hictools::compartment_ht(hic_data,
+                                 standard = standard_comp,
+                                 type = "oe",
+                                 smooth = smoothing)
+    }
+
+    comps <-
+      cbind(comps,
+            data.table::data.table(method = method, smooth = smoothing))
+    comps[, score := ifelse(is.infinite(score) |
+                              is.nan(score), NA, score)]
+  }) %>%
+  data.table::rbindlist(fill = TRUE)
 
 
 system(str_interp("mkdir -p ${script_args$output_dir}"))
-cofrag_comp_file <- str_interp("${script_args$output_dir}/${script_args$sample_id}.compartment.bedGraph.gz")
+cofrag_comp_file <- str_interp("${script_args$output_dir}/${script_args$sample_id}.compartment.bed.gz")
 logging::loginfo(str_interp("Write compartment scores: ${cofrag_comp_file}"))
 
-bedtorch::write_bed(comps, file_path = cofrag_comp_file, comments = comments)
+bedtorch::write_bed(comps, file_path = cofrag_comp_file, comments = comments, tabix_index = FALSE)
 
 logging::loginfo(str_interp("Analysis completed, with results located at ${script_args$output_dir}"))
 
