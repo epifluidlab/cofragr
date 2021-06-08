@@ -167,7 +167,7 @@ Then you can simply run some variation of the following, inputting any arguments
 
     Rscript cofragr.R 
     -i examplefile.bed.gz \
-    -o \output\directory\ \
+    -o output_file_path \
     --min-mapq 30 \
     --chroms 1:2:3 \
     --subsample 10000 \
