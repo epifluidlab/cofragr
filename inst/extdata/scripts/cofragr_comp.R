@@ -21,6 +21,26 @@ stop_quietly <- function() {
 # )
 
 
+# script_args validity
+validate_args <- function(args) {
+  with(args, {
+    assert_that(
+      is_null(standard_compartment) ||
+        (
+          is_scalar_character(standard_compartment) &&
+            standard_compartment %in% c("wbc", "gene_density")
+        )
+    )
+    assert_that(is_scalar_integer(res) && res > 0)
+    assert_that(is_null(genome) ||
+                  (is_scalar_character(genome) && genome == "hs37-1kg"))
+    assert_that(length(method) >= 1 &&
+                  all(method %in% c("juicer", "lieberman", "obs_exp")))
+    # assert_that(length(smooth) >= 1 && is_integer(smooth) && all(smooth > 0))
+  })
+} 
+
+
 if (interactive()) {
   library(tidyverse)
   library(magrittr)
@@ -37,8 +57,8 @@ if (interactive()) {
       optparse::make_option(c("--res"), type = "integer", default = 500e3L),
       optparse::make_option(c("--chroms"), default = NULL,
                             help = "Perform the analysis only for a selected group of chromosomes. Separated by colons, such as 12:16:X. If not provided, all chromosomes found in the input file will be used"),
-      # optparse::make_option(c("--method"), default = ""),
-      # optparse::make_option(c("--smooth"), type = "integer", default = 3L, help = "Apply moving average on the compartment track. Sometimes this can remove some quirks and make the data more similar to Hi-C compartment tracks"),
+      optparse::make_option(c("--method"), default = "juicer:lieberman:obs_exp"),
+      # optparse::make_option(c("--smooth"), default = "1:3", help = "Apply moving average on the compartment track. Sometimes this can remove some quirks and make the data more similar to Hi-C compartment tracks"),
       # optparse::make_option(
       #   c("--standard-hic"),
       #   type = "character",
@@ -48,7 +68,12 @@ if (interactive()) {
       optparse::make_option(
         c("--standard-compartment"),
         default = NULL,
-        help = "A standard compartment track (BED format) for calculating compartment correlation scores"
+        help = "A standard compartment track (BED format) for calculating compartment correlation scores. Can be wbc or gene_density"
+      ),
+      optparse::make_option(
+        c("-g", "--genome"),
+        default = "hs37-1kg",
+        help = "Reference genome of the dataset. The default is hs37-1kg.",
       ),
       optparse::make_option(c("--juicer"), default = NULL,
                             help = "Path to the .jar file Juicer tools. If not provided, will download from Internet"),
@@ -65,16 +90,16 @@ if (interactive()) {
 
   library(tidyverse)
   library(magrittr)
+  library(assertthat)
+  library(rlang)
 
-  if (!is.null(script_args$method))
-    script_args$method %<>% str_split(pattern = ":") %>% .[[1]]
-  if (!is.null(script_args$chroms))
+  script_args$method %<>% str_split(pattern = ":") %>% .[[1]]
+  # script_args$smooth %<>% str_split(pattern = ":") %>% .[[1]] %>% map_int(as.integer)
+  if (!is_null(script_args$chroms))
     script_args$chroms %<>% str_split(pattern = ":") %>% .[[1]]
-  # if (!is.null(script_args$standard_hic))
-  #   script_args$standard_hic %<>% str_split(pattern = ":") %>% .[[1]]
-  # if (!is.null(script_args$standard_compartment))
-  #   script_args$standard_compartment %<>% str_split(pattern = ":") %>% .[[1]]
 }
+
+validate_args(script_args)
 
 # Build comment lines
 comments <- c(
@@ -115,10 +140,31 @@ logging::loginfo(
   )
 )
 
+# Standard compartment
+if (is_null(script_args$standard_compartment)) {
+  standard_comp <- NULL
+} else{
+  standard_comp <- local({
+    res_kbp <- as.integer(script_args$res / 1e3L)
+    comp_name <- script_args$standard_compartment
+    if (comp_name == "gene_density")
+      comp_name <-
+      str_interp("gencode.v30.b37.gene_density.${res_kbp}kbp")
+    else if (comp_name == "wbc")
+      comp_name <-
+      str_interp("wbc.rep1.compartment.hs37-1kg.NONE.${res_kbp}kbp")
+    
+    logging::loginfo(str_interp("Loading standard compartment: ${comp_name}"))
+    env <- rlang::env()
+    data(list = comp_name, envir = env)
+    env[[comp_name]]
+  })
+}
+
 comps <- expand_grid(
   chrom = all_chroms,
   smoothing = 1:3,
-  method = c("juicer", "hictools")
+  method = script_args$method
 ) %>%
   pmap(function(chrom, smoothing, method) {
     hic_data <-
@@ -126,34 +172,21 @@ comps <- expand_grid(
         script_args$input,
         chrom = chrom,
         resol = script_args$res,
-        type = "oe",
-        norm = "NONE"
+        type = "cofrag",
+        norm = "NONE",
+        genome = script_args$genome
       )
-
-    if (!is.null(script_args$standard_compartment))
-      standard_comp <-
-        bedtorch::read_bed(script_args$standard_compartment,
-                           range = chrom,
-                           use_gr = FALSE)
-    else
-      standard_comp <- "gene_density.hg19"
-
-    if (method == "juicer") {
-      comps <-
-        hictools::compartment_juicer(hic_data, standard = standard_comp, smoothing = smoothing)
-    } else {
-      comps <-
-        hictools::compartment_ht(hic_data,
-                                 standard = standard_comp,
-                                 type = "oe",
-                                 smooth = smoothing)
-    }
-
     comps <-
-      cbind(comps,
-            data.table::data.table(method = method, smooth = smoothing))
-    comps[, score := ifelse(is.infinite(score) |
-                              is.nan(score), NA, score)]
+      hictools::get_compartment(hic_data,
+                                method = method,
+                                standard = standard_comp,
+                                smoothing = smoothing,
+                                genome = script_args$genome)
+
+    comps$score <- local({
+      score <- comps$score
+      ifelse(is.infinite(score) | is.na(score), NA, score)
+    })
   }) %>%
   data.table::rbindlist(fill = TRUE)
 

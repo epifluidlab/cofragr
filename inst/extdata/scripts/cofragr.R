@@ -6,6 +6,24 @@ stop_quietly <- function() {
   stop()
 }
 
+# script_args validity
+validate_args <- function(args) {
+  with(args, {
+    assert_that(is_scalar_character(metrics) && metrics %in% c("ks"), msg = "metrics must be ks")
+    assert_that(is_null(genome) || (is_scalar_character(genome) && genome == "hs37-1kg"), msg = "genome must be NULL or hs37-1kg")
+    assert_that(is_scalar_integer(res) && res > 0)
+    assert_that(is_scalar_integer(block_size) && block_size > 0 && block_size %% res == 0, msg = "block_size must be a positive integer which is the multiple of res")
+    assert_that(is_scalar_integer(ncores) && ncores >= 1)
+    assert_that(is_scalar_integer(bootstrap) && bootstrap >= 1)
+    assert_that(is_scalar_integer(subsample) && subsample >= 100, msg = "subsample must be a positive integer no less than 100")
+    assert_that(is_scalar_integer(min_mapq) && min_mapq >= 0)
+    assert_that(is_scalar_integer(min_fraglen) && min_fraglen >= 1)
+    assert_that(is_scalar_integer(max_fraglen) && max_fraglen >= 1)
+    assert_that(!isTRUE(max_fraglen <= min_fraglen), msg = "max_fraglen must be larger than min_fraglen")
+  }) %>% invisible()
+} 
+
+
 # # example
 # script_args <- list(
 #   input = here("sandbox/Pilot2-9.hg19.frag.bed.gz"),
@@ -40,7 +58,17 @@ if (interactive()) {
           script_args,
           sep = "=",
           collapse = "; ")
+  
+  library(tidyverse)
+  library(magrittr)
+  library(here)
+  library(rlang)
+  library(assertthat)
 } else {
+  library(here)
+  library(rlang)
+  library(assertthat)
+  
   # Run in CLI script mode
   parser <- optparse::OptionParser(
     option_list = list(
@@ -89,7 +117,8 @@ if (interactive()) {
         type = "character",
         default = "encode.blacklist.hs37-1kg",
         help = "BED files defining regions to be excluded from the analysis, separated by colon"
-      )
+      ),
+      optparse::make_option(c("--parallel"), default = TRUE, help = "Run in parallel mode. Default is TRUE")
     )
   )
   script_args <-
@@ -119,6 +148,8 @@ if (interactive()) {
   param_str <- paste0("Parameters: ", paste(commandArgs(trailingOnly = TRUE), collapse = " "))
 }
 
+validate_args(script_args)
+
 # Build comment lines
 comments <- c(
   paste0("cofragr version: ", as.character(packageVersion("cofragr"))),
@@ -135,9 +166,6 @@ comments <- c(
   })
 )
 
-library(here)
-
-
 logging::loginfo(str_interp("Argument summary:"))
 comments %>% purrr::walk(function(v) logging::loginfo(v))
 
@@ -148,9 +176,9 @@ logging::loginfo(
   )
 )
 # Filter chroms
-if (!is.null(script_args$chroms))
+if (!is_null(script_args$chroms))
   all_chroms <- intersect(all_chroms, script_args$chroms)
-if (!is.null(script_args$exclude_chroms))
+if (!is_null(script_args$exclude_chroms))
   all_chroms <- setdiff(all_chroms, script_args$exclude_chroms)
 logging::loginfo(
   str_interp(
@@ -162,16 +190,22 @@ logging::loginfo(
 # Users may provide multiple files for excluded regions, and for each file the regions may be overlapping.
 # Merge all excluded regions together.
 merge_regions <- function(regions, genome = NULL) {
-  if (is.null(regions))
+  if (is_null(regions))
     return(NULL)
 
   regions %>% map(function(r) {
     # Use regions shipped with the package
-    if (r == "encode.blacklist.hs37-1kg")
-      r <- system.file("extdata", "wgEncodeDacMapabilityConsensusExcludable.hs37-1kg.bed", package = "cofragr")
-
-    bedtorch::read_bed(r, genome = genome) %>%
-      GenomicRanges::granges()
+    if (r == "encode.blacklist")
+      local({
+        env <- rlang::env()
+        dataset_name <- paste0("wgEncodeDacMapabilityConsensusExcludable.", genome)
+        data(list = dataset_name, package = "cofragr", envir = env)
+        region <- env[[dataset_name]]
+        assert_that(!is_null(region))
+        region
+      })
+    else
+      bedtorch::read_bed(r, genome = genome)
   }) %>%
     do.call(what = c, args = .) %>%
     bedtorch::merge_bed()
@@ -222,24 +256,24 @@ cofrag_cm <- all_chroms %>% map(function(chrom) {
 
   logging::loginfo(str_interp("# of fragments loaded for chr${chrom}: ${length(frag)}"))
 
-  if (!is.null(script_args$intersect_region)) {
+  if (!is_null(script_args$intersect_region)) {
     intersect_region <- merge_regions(script_args$intersect_region, genome = script_args$genome)
     frag %<>% bedtorch::intersect_bed(intersect_region, mode = "unique")
     logging::loginfo(str_interp("# of fragments after intersecting regions: ${length(frag)}"))
   }
 
-  if (!is.null(script_args$exclude_region)) {
+  if (!is_null(script_args$exclude_region)) {
     exclude_region <- merge_regions(script_args$exclude_region, genome = script_args$genome)
     frag %<>% bedtorch::exclude_bed(exclude_region)
     logging::loginfo(str_interp("# of fragments after excluding regions: ${length(frag)}"))
   }
 
-  if (!is.null(script_args$min_mapq)) {
+  if (!is_null(script_args$min_mapq)) {
     frag %<>% filter_mapq(min_mapq = script_args$min_mapq)
     logging::loginfo(str_interp("# of fragments after filtering by MAPQ: ${length(frag)}"))
   }
 
-  if (!is.null(script_args$min_fraglen) || !is.null(script_args$max_fraglen)) {
+  if (!is_null(script_args$min_fraglen) || !is_null(script_args$max_fraglen)) {
     frag %<>% filter_fraglen(min_fraglen = script_args$min_fraglen, max_fraglen = script_args$max_fraglen)
     logging::loginfo(str_interp("# of fragments after filtering by fragment length: ${length(frag)}"))
   }
@@ -262,21 +296,25 @@ cofrag_cm <- all_chroms %>% map(function(chrom) {
     bin_size = script_args$res,
     block_size = script_args$block_size,
     n_workers = script_args$ncores,
+    parallel = script_args$parallel,
     subsample = script_args$subsample,
     min_sample_size = 100L,
     bootstrap = script_args$bootstrap,
     seed = script_args$seed
   )
 }) %>%
-  do.call(what = c, args = .)
+  hictools::concat_hic()
+  # do.call(what = c, args = .)
 
 
-system(str_interp("mkdir -p ${script_args$output_dir}"))
-cofrag_cm_file <- str_interp("${script_args$output_dir}/${script_args$sample_id}.cofrag_cm.bed.gz")
+output_dir <- script_args$output_dir
+system(str_interp("mkdir -p ${output_dir}"))
+cofrag_cm_file <- str_interp("${output_dir}/${script_args$sample_id}.cofrag_cm.bed.gz")
 logging::loginfo(str_interp("Write cofragmentation matrix: ${cofrag_cm_file}"))
 
-cofragr::write_contact_matrix(cofrag_cm, file_path = cofrag_cm_file, comments = comments)
+hictools::write_hic_bedtorch(cofrag_cm, file_path = cofrag_cm_file, comments = comments)
+# cofragr::write_contact_matrix(cofrag_cm, file_path = cofrag_cm_file, comments = comments)
 
-logging::loginfo(str_interp("Analysis completed, with results located at ${script_args$output_dir}"))
+logging::loginfo(str_interp("Analysis completed, with results located at ${output_dir}"))
 
 
