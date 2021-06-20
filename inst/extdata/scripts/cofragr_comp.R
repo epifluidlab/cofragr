@@ -37,17 +37,24 @@ validate_args <- function(args) {
     assert_that(length(method) >= 1 &&
                   all(method %in% c("juicer", "lieberman", "obs_exp")))
     # assert_that(length(smooth) >= 1 && is_integer(smooth) && all(smooth > 0))
-  })
+  }) %>% invisible()
 } 
 
 
 if (interactive()) {
   library(tidyverse)
   library(magrittr)
+  library(here)
+  library(rlang)
+  library(assertthat)
 
   if (is.null(get0("script_args")))
     stop_quietly()
 } else {
+  library(here)
+  library(rlang)
+  library(assertthat)
+  
   # Run in CLI script mode
   parser <- optparse::OptionParser(
     option_list = list(
@@ -57,7 +64,7 @@ if (interactive()) {
       optparse::make_option(c("--res"), type = "integer", default = 500e3L),
       optparse::make_option(c("--chroms"), default = NULL,
                             help = "Perform the analysis only for a selected group of chromosomes. Separated by colons, such as 12:16:X. If not provided, all chromosomes found in the input file will be used"),
-      optparse::make_option(c("--method"), default = "juicer:lieberman:obs_exp"),
+      optparse::make_option(c("--method"), default = "juicer:lieberman"),
       # optparse::make_option(c("--smooth"), default = "1:3", help = "Apply moving average on the compartment track. Sometimes this can remove some quirks and make the data more similar to Hi-C compartment tracks"),
       # optparse::make_option(
       #   c("--standard-hic"),
@@ -90,8 +97,6 @@ if (interactive()) {
 
   library(tidyverse)
   library(magrittr)
-  library(assertthat)
-  library(rlang)
 
   script_args$method %<>% str_split(pattern = ":") %>% .[[1]]
   # script_args$smooth %<>% str_split(pattern = ":") %>% .[[1]] %>% map_int(as.integer)
@@ -156,17 +161,16 @@ if (is_null(script_args$standard_compartment)) {
     
     logging::loginfo(str_interp("Loading standard compartment: ${comp_name}"))
     env <- rlang::env()
-    data(list = comp_name, envir = env)
+    data(list = comp_name, envir = env, package = "hictools")
     env[[comp_name]]
   })
 }
 
 comps <- expand_grid(
   chrom = all_chroms,
-  smoothing = 1:3,
   method = script_args$method
 ) %>%
-  pmap(function(chrom, smoothing, method) {
+  pmap(function(chrom, method) {
     hic_data <-
       hictools::load_hic_genbed(
         script_args$input,
@@ -180,16 +184,33 @@ comps <- expand_grid(
       hictools::get_compartment(hic_data,
                                 method = method,
                                 standard = standard_comp,
-                                smoothing = smoothing,
+                                smoothing = 1,
                                 genome = script_args$genome)
-
-    comps$score <- local({
-      score <- comps$score
-      ifelse(is.infinite(score) | is.na(score), NA, score)
+    comps$method <- method
+    
+    comps <- 1:3 %>%
+      map(function(smoothing) {
+        comps$smooth <- smoothing
+        if (smoothing > 1)
+          comps$score <- zoo::rollmean(comps$score, k = smoothing, na.pad = TRUE, na.rm = TRUE, align = "center")
+        comps[!is.na(comps$score)]
+      }) %>%
+      do.call(c, args = .)
+    
+    # comps$score <- local({
+    #   score <- comps$score
+    #   ifelse(is.infinite(score) | is.na(score), NA, score)
+    # })
+    
+    seqinfo <- bedtorch::get_seqinfo(script_args$genome)
+    suppressWarnings({
+      GenomeInfoDb::seqlevels(comps) <- GenomeInfoDb::seqlevels(seqinfo)
+      GenomeInfoDb::seqinfo(comps) <- bedtorch::get_seqinfo(script_args$genome)
+      GenomicRanges::trim(comps)
     })
-  }) %>%
-  data.table::rbindlist(fill = TRUE)
+  })
 
+comps <- rlang::exec(c, !!!comps)
 
 system(str_interp("mkdir -p ${script_args$output_dir}"))
 cofrag_comp_file <- str_interp("${script_args$output_dir}/${script_args$sample_id}.compartment.bed.gz")

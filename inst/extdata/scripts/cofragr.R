@@ -26,28 +26,34 @@ validate_args <- function(args) {
 
 # # example
 # script_args <- list(
-#   input = here("sandbox/Pilot2-9.hg19.frag.bed.gz"),
-#   output_dir = here("sandbox/"),
-#   sample_id = "T1",
+#   input = here::here("sandbox/EE88102.hg19.frag.gz"),
+#   output_dir = here::here("sandbox/"),
+#   sample_id = "EE88102",
 #   metrics = "ks",
 #   genome = "hs37-1kg",
 #   res = 500e3L,
-#   ncores = 6L,
-#   bootstrap = 3L,
+#   block_size = 10e6L,
+#   ncores = 4L,
+#   bootstrap = 10L,
 #   subsample = 10e3L,
 #   seed = 1228L,
-#   chroms = c("20", "21", "22"),
-#   exclude_chroms = c("18", "20"),
+#   chroms = c("20", "22"),
+#   exclude_chroms = NULL,
 #   min_mapq = 30L,
-#   min_fraglen = 50L,
-#   max_fraglen = 500L,
+#   min_fraglen = 100L,
+#   max_fraglen = 350L,
 #   intersect_region = NULL, # here("sandbox/cofrag/cfEW1.cna.neutral.bed"),
-#   exclude_region = "encode.blacklist.hs37-1kg"
+#   exclude_region = "encode.blacklist",
+#   parallel = TRUE
 # )
+
 
 if (interactive()) {
   library(tidyverse)
   library(magrittr)
+  library(here)
+  library(rlang)
+  library(assertthat)
 
   if (is.null(get0("script_args")))
     stop_quietly()
@@ -58,12 +64,6 @@ if (interactive()) {
           script_args,
           sep = "=",
           collapse = "; ")
-  
-  library(tidyverse)
-  library(magrittr)
-  library(here)
-  library(rlang)
-  library(assertthat)
 } else {
   library(here)
   library(rlang)
