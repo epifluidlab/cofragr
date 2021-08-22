@@ -150,8 +150,24 @@ stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
     # Attention: if you calculate mean(pvalues) and then calculate score, it doesn't work
     # The compartment scores will look weird.
     score <- median(-log10(2e-16) + log10(pmax(2e-16, v)))
-    p_value <- mean(v)
-    p_value_sd <- sd(v)
+    # p_value <- mean(v)
+    # p_value_sd <- sd(v)
+    
+    
+    # Calculate hellinger distance
+    if (identical(len1, len2)) {
+      score_hellinger <- 1
+    } else {
+      bkde1 <- pmax(philentropy::binned.kernel.est(data = len1, range.data = c(1, 1000), gridsize = 1000)$y, 0)
+      bkde2 <- pmax(philentropy::binned.kernel.est(data = len2, range.data = c(1, 1000), gridsize = 1000)$y, 0)
+      hellinger_dist <- philentropy::distance(
+        x = rbind(bkde1, bkde2),
+        method = "hellinger",
+        est.prob = "empirical",
+        mute.message = TRUE
+      ) / 2
+      score_hellinger <- 1 - hellinger_dist
+    }
 
     # score, n_frag1 and n_frag2 doesn't change across different bootstrap iterations
     # To save space, we only record these values at bootstrap #1. For other iterations,
@@ -161,7 +177,9 @@ stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
       score = c(score, rep(NA, bootstrap - 1)),
       n_frag1 = c(n_frag1, rep(NA, bootstrap - 1)),
       n_frag2 = c(n_frag2, rep(NA, bootstrap - 1)),
-      p_value = v
+      bootstrap = seq.int(bootstrap),
+      p_value = v,
+      hellinger = c(score_hellinger, rep(NA, bootstrap - 1))
     )
   }
 }
@@ -229,7 +247,7 @@ calc_contact_matrix <- function(fraglen,
 
   if (!is.null(seed))
     set.seed(seed)
-
+  
   foreach(
     data = foreach_layout,
     .export = "n_blocks",
