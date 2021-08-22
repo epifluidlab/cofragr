@@ -153,12 +153,15 @@ stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
     p_value <- mean(v)
     p_value_sd <- sd(v)
 
+    # score, n_frag1 and n_frag2 doesn't change across different bootstrap iterations
+    # To save space, we only record these values at bootstrap #1. For other iterations,
+    # we write NA instead.
+    # For p-values, however, we record all of them faithfully since they vary across iterations.
     list(
-      score = score,
-      n_frag1 = n_frag1,
-      n_frag2 = n_frag2,
-      p_value = p_value,
-      p_value_sd = p_value_sd
+      score = c(score, rep(NA, bootstrap - 1)),
+      n_frag1 = c(n_frag1, rep(NA, bootstrap - 1)),
+      n_frag2 = c(n_frag2, rep(NA, bootstrap - 1)),
+      p_value = v
     )
   }
 }
