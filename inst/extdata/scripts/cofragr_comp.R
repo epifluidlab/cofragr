@@ -9,13 +9,16 @@ stop_quietly <- function() {
 
 # # example
 # script_args <- list(
-#   input = here("sandbox/Pilot2-9.cofrag_cm.bed.gz"),
-#   output_dir = here("sandbox/"),
-#   sample_id = "T1",
+#   input = "~/Downloads/EE87929.cofrag_cm.bed.gz",
+#   output_dir = here::here("sandbox/"),
+#   sample_id = "EE87929",
 #   res = 500e3L,
 #   chroms = c("20", "21", "22"),
-#   smooth = 3L,
-#   method = "NONE",
+#   # method = c("juicer", "lieberman", "obs_exp"),
+#   method = c("lieberman", "obs_exp"),
+#   smooth = c(1L, 3L),
+#   standard_compartment = "wbc",
+#   genome = "hs37-1kg",
 #   juicer = NULL,
 #   java = "java"
 # )
@@ -64,18 +67,12 @@ if (interactive()) {
       optparse::make_option(c("--res"), type = "integer", default = 500e3L),
       optparse::make_option(c("--chroms"), default = NULL,
                             help = "Perform the analysis only for a selected group of chromosomes. Separated by colons, such as 12:16:X. If not provided, all chromosomes found in the input file will be used"),
-      optparse::make_option(c("--method"), default = "juicer:lieberman"),
-      # optparse::make_option(c("--smooth"), default = "1:3", help = "Apply moving average on the compartment track. Sometimes this can remove some quirks and make the data more similar to Hi-C compartment tracks"),
-      # optparse::make_option(
-      #   c("--standard-hic"),
-      #   type = "character",
-      #   default = NULL,
-      #   help = "A standard Hi-C map (.hic file) used for calculating HiCRep correlation scores"
-      # ),
+      optparse::make_option(c("--method"), default = "juicer:lieberman:obs_exp"),
+      optparse::make_option(c("--smooth"), default = "1:3", help = "Apply moving average on the compartment track. Sometimes this can remove some quirks and make the data more similar to Hi-C compartment tracks"),
       optparse::make_option(
         c("--standard-compartment"),
-        default = NULL,
-        help = "A standard compartment track (BED format) for calculating compartment correlation scores. Can be wbc or gene_density"
+        default = "wbc",
+        help = "A standard compartment track (BED format) for calculating compartment correlation scores. Can be either `wbc` or `gene_density`"
       ),
       optparse::make_option(
         c("-g", "--genome"),
@@ -99,7 +96,7 @@ if (interactive()) {
   library(magrittr)
 
   script_args$method %<>% str_split(pattern = ":") %>% .[[1]]
-  # script_args$smooth %<>% str_split(pattern = ":") %>% .[[1]] %>% map_int(as.integer)
+  script_args$smooth %<>% str_split(pattern = ":") %>% .[[1]] %>% map_int(as.integer)
   if (!is_null(script_args$chroms))
     script_args$chroms %<>% str_split(pattern = ":") %>% .[[1]]
 }
@@ -166,41 +163,42 @@ if (is_null(script_args$standard_compartment)) {
   })
 }
 
-comps <- expand_grid(
+cofrag_comp_grid <- expand_grid(
   chrom = all_chroms,
-  method = script_args$method
-) %>%
-  pmap(function(chrom, method) {
+  method = script_args$method,
+  smooth = script_args$smooth,
+  metric = c("score", "hellinger")
+) 
+
+cofrag_comp_results <- cofrag_comp_grid %>%
+  pmap(function(chrom, method, smooth, metric) {
+    logging::loginfo(str_interp("Processing: chrom:${chrom} ${method} smooth:${smooth} ${metric}"))
     hic_data <-
       hictools::load_hic_genbed(
         script_args$input,
-        chrom = chrom,
+        chrom,
         resol = script_args$res,
-        type = "cofrag",
+        type = "observed",
         norm = "NONE",
-        genome = script_args$genome
+        genome = script_args$genome,
+        score_col = metric,
+        scale_score = TRUE
       )
+    
     comps <-
       hictools::get_compartment(hic_data,
                                 method = method,
                                 standard = standard_comp,
-                                smoothing = 1,
+                                smooth = smooth,
                                 genome = script_args$genome)
     comps$method <- method
+    comps$smooth <- smooth
+    comps$metric <- metric
     
-    comps <- 1:3 %>%
-      map(function(smoothing) {
-        comps$smooth <- smoothing
-        if (smoothing > 1)
-          comps$score <- zoo::rollmean(comps$score, k = smoothing, na.pad = TRUE, na.rm = TRUE, align = "center")
-        comps[!is.na(comps$score)]
-      }) %>%
-      do.call(c, args = .)
-    
-    # comps$score <- local({
-    #   score <- comps$score
-    #   ifelse(is.infinite(score) | is.na(score), NA, score)
-    # })
+    comps$score <- local({
+      score <- comps$score
+      ifelse(is.infinite(score) | is.na(score), NA, score)
+    })
     
     seqinfo <- bedtorch::get_seqinfo(script_args$genome)
     suppressWarnings({
@@ -208,15 +206,30 @@ comps <- expand_grid(
       GenomeInfoDb::seqinfo(comps) <- bedtorch::get_seqinfo(script_args$genome)
       GenomicRanges::trim(comps)
     })
+    
+    correlation <- hictools::comp_correlation(comps, standard_comp)
+
+    list(comps = comps, correlation = correlation)
   })
 
-comps <- rlang::exec(c, !!!comps)
+browser()
+comps <- cofrag_comp_results %>% map(~ .$comps) %>% do.call(what = c, args = .)
+
+cofrag_correlation <-
+  map2_dfr(seq.int(nrow(cofrag_comp_grid)), 
+           cofrag_comp_results, 
+           function(grid_idx, result) {
+    c(cofrag_comp_grid[grid_idx,], result$correlation)
+  })
 
 system(str_interp("mkdir -p ${script_args$output_dir}"))
 cofrag_comp_file <- str_interp("${script_args$output_dir}/${script_args$sample_id}.compartment.bed.gz")
+cofrag_correlation_file <- str_interp("${script_args$output_dir}/${script_args$sample_id}.compartment_correlation.tsv")
 logging::loginfo(str_interp("Write compartment scores: ${cofrag_comp_file}"))
+logging::loginfo(str_interp("Write compartment correlation: ${cofrag_correlation_file}"))
 
 bedtorch::write_bed(comps, file_path = cofrag_comp_file, comments = comments, tabix_index = FALSE)
+write_tsv(cofrag_correlation, file = cofrag_correlation_file)
 
 logging::loginfo(str_interp("Analysis completed, with results located at ${script_args$output_dir}"))
 
