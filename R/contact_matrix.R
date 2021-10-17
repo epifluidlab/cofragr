@@ -33,10 +33,27 @@ read_fragments <- function(file_path, range = NULL, genome = NULL) {
   }
 
   # Only need mapq. Drop other columns
-  mcols(frag) <- frag_metadata["mapq"]
+  mcols(frag) <-
+    frag_metadata[intersect(c("mapq", "cigar1", "cigar2"), colnames(frag_metadata))]
+  
+  if ("cigar1" %in% colnames(frag_metadata)) {
+    cigar_select <-
+      grepl(pattern = "^[0-9]+M", frag$cigar1) &
+      grepl(pattern = "[0-9]+M$", frag$cigar2)
+    frag <- frag[cigar_select]
+  }
+  
+  # Each fragment is represented using the mid-point
+  frag$len <- GenomicRanges::width(frag)
+  mid_point <- as.integer(round((GenomicRanges::start(frag) + GenomicRanges::end(frag)) / 2))
+  GenomicRanges::start(frag) <- mid_point
+  GenomicRanges::end(frag) <- mid_point
+  frag <- sort(frag)
+  
   if (mapq_guessed)
     print(frag)
-  frag
+  
+  return(frag)
 }
 
 #' @export
@@ -68,12 +85,12 @@ fraglen_over_window <- function(frag, bin_size = 500e3L) {
   chrom <- unique(seqnames(frag))
   stopifnot(length(chrom) == 1)
 
-  # Find mid-points
-  midpoints <-
-    as.integer(round(start(frag) + (width(frag) - 1) / 2))
-  frag$len <- width(frag)
-  start(frag) <- midpoints
-  width(frag) <- 1
+  # # Find mid-points
+  # midpoints <-
+  #   as.integer(round(start(frag) + (width(frag) - 1) / 2))
+  # frag$len <- width(frag)
+  # start(frag) <- midpoints
+  # width(frag) <- 1
 
   window <-
     bedtorch::make_windows(

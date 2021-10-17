@@ -10,7 +10,11 @@ stop_quietly <- function() {
 validate_args <- function(args) {
   with(args, {
     assert_that(is_scalar_character(metrics) && metrics %in% c("ks"), msg = "metrics must be ks")
-    assert_that(is_null(genome) || (is_scalar_character(genome) && genome == "hs37-1kg"), msg = "genome must be NULL or hs37-1kg")
+    assert_that(
+      is_scalar_character(genome) &&
+        genome %in% c("hs37-1kg", "GRCh37", "GRCh38"),
+      msg = str_interp("Unsupported genome: ${genome}")
+    )
     assert_that(is_scalar_integer(res) && res > 0)
     assert_that(is_scalar_integer(block_size) && block_size > 0 && block_size %% res == 0, msg = "block_size must be a positive integer which is the multiple of res")
     assert_that(is_scalar_integer(ncores) && ncores >= 1)
@@ -19,33 +23,34 @@ validate_args <- function(args) {
     assert_that(is_scalar_integer(min_mapq) && min_mapq >= 0)
     assert_that(is_scalar_integer(min_fraglen) && min_fraglen >= 1)
     assert_that(is_scalar_integer(max_fraglen) && max_fraglen >= 1)
+    assert_that(is_null(seed) || is_scalar_integer(seed))
     assert_that(!isTRUE(max_fraglen <= min_fraglen), msg = "max_fraglen must be larger than min_fraglen")
   }) %>% invisible()
 } 
 
 
-# # example
-# script_args <- list(
-#   input = here::here("~/Downloads/EE87929.hg19.frag.gz"),
-#   output_dir = here::here("sandbox/"),
-#   sample_id = "EE87929",
-#   metrics = "ks",
-#   genome = "hs37-1kg",
-#   res = 500e3L,
-#   block_size = 10e6L,
-#   ncores = 4L,
-#   bootstrap = 10L,
-#   subsample = 10e3L,
-#   seed = 1228L,
-#   chroms = c("22"),
-#   exclude_chroms = NULL,
-#   min_mapq = 30L,
-#   min_fraglen = 100L,
-#   max_fraglen = 350L,
-#   intersect_region = NULL, # here("sandbox/cofrag/cfEW1.cna.neutral.bed"),
-#   exclude_region = "encode.blacklist",
-#   parallel = FALSE
-# )
+# example
+script_args <- list(
+  input = "~/dev/gateway_project/sandbox/frag/Pilot2_9.hg19.frag.bed.gz",
+  output_dir = here::here("sandbox/"),
+  sample_id = "Pilot2_9.hg19",
+  metrics = "ks",
+  genome = "hs37-1kg",
+  res = 500e3L,
+  block_size = 10e6L,
+  ncores = 2L,
+  bootstrap = 5L,
+  subsample = 10e3L,
+  seed = 1228L,
+  chroms = c("21"),
+  exclude_chroms = NULL,
+  min_mapq = 30L,
+  min_fraglen = 100L,
+  max_fraglen = 350L,
+  intersect_region = NULL, # here("sandbox/cofrag/cfEW1.cna.neutral.bed"),
+  exclude_region = "encode.blacklist",
+  parallel = TRUE
+)
 
 
 if (interactive()) {
@@ -115,7 +120,8 @@ if (interactive()) {
       optparse::make_option(
         c("--exclude-region"),
         type = "character",
-        default = "encode.blacklist.hs37-1kg",
+        default = NULL,
+        # default = "encode.blacklist",
         help = "BED files defining regions to be excluded from the analysis, separated by colon"
       ),
       optparse::make_option(c("--parallel"), default = TRUE, help = "Run in parallel mode. Default is TRUE")
@@ -132,7 +138,7 @@ if (interactive()) {
   library(magrittr)
 
   if (is.null(script_args$seed)) {
-    script_args$seed <- round(runif(1) * 1e6L)
+    script_args$seed <- as.integer(round(runif(1) * 1e6L))
     logging::loginfo(str_interp("Randomly pick a seed: ${script_args$seed}"))
   }
   if (!is.null(script_args$chroms))
@@ -152,9 +158,9 @@ validate_args(script_args)
 
 # Build comment lines
 comments <- c(
-  paste0("cofragr version: ", as.character(packageVersion("cofragr"))),
-  paste0("hictools version: ", as.character(packageVersion("hictools"))),
-  paste0("bedtorch version: ", as.character(packageVersion("bedtorch"))),
+  paste0("cofragr_version=", as.character(packageVersion("cofragr"))),
+  paste0("hictools_version=", as.character(packageVersion("hictools"))),
+  paste0("bedtorch_version=", as.character(packageVersion("bedtorch"))),
   # All items in script_args
   names(script_args) %>% purrr::map_chr(function(name) {
     v <- script_args[[name]]
@@ -234,11 +240,11 @@ filter_fraglen <- function(frag, min_fraglen = NULL, max_fraglen = NULL) {
   if (is.null(min_fraglen) && is.null(max_fraglen))
     return(frag)
   else if (is.null(min_fraglen))
-    frag <- frag[GenomicRanges::width(frag) <= max_fraglen]
+    frag <- frag[frag$len <= max_fraglen]
   else if (is.null(max_fraglen))
-    frag <- frag[GenomicRanges::width(frag) >= min_fraglen]
+    frag <- frag[frag$len >= min_fraglen]
   else
-    frag <- frag[between(GenomicRanges::width(frag), min_fraglen, max_fraglen)]
+    frag <- frag[between(frag$len, min_fraglen, max_fraglen)]
 
   frag
 }

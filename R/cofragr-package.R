@@ -11,4 +11,6 @@
 #' @importFrom doParallel registerDoParallel
 #' @importFrom doRNG `%dorng%`
 #' @importFrom foreach foreach `%do%` `%dopar%`
+#' @importFrom rlang is_null
+#' @importFrom assertthat assert_that
 NULL
