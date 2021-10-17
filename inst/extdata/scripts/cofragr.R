@@ -26,9 +26,9 @@ validate_args <- function(args) {
 
 # # example
 # script_args <- list(
-#   input = here::here("sandbox/EE88102.hg19.frag.gz"),
+#   input = here::here("~/Downloads/EE87929.hg19.frag.gz"),
 #   output_dir = here::here("sandbox/"),
-#   sample_id = "EE88102",
+#   sample_id = "EE87929",
 #   metrics = "ks",
 #   genome = "hs37-1kg",
 #   res = 500e3L,
@@ -37,14 +37,14 @@ validate_args <- function(args) {
 #   bootstrap = 10L,
 #   subsample = 10e3L,
 #   seed = 1228L,
-#   chroms = c("20", "22"),
+#   chroms = c("22"),
 #   exclude_chroms = NULL,
 #   min_mapq = 30L,
 #   min_fraglen = 100L,
 #   max_fraglen = 350L,
 #   intersect_region = NULL, # here("sandbox/cofrag/cfEW1.cna.neutral.bed"),
 #   exclude_region = "encode.blacklist",
-#   parallel = TRUE
+#   parallel = FALSE
 # )
 
 
