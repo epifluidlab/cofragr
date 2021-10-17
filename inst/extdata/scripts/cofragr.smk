@@ -2,7 +2,7 @@
 from snakemake.utils import min_version
 min_version("6.0")
 
-localrules: all, cofrag_cm_merge, cofrag_compartment, compartment_bigwig
+# localrules: all, cofrag_cm_merge, cofrag_compartment, compartment_bigwig
 
 # >>> Configuration >>>
 MEM_PER_CORE = config.get("MEM_PER_CORE", 2000)
@@ -20,7 +20,8 @@ BOOTSTRAP = int(config.get("BOOTSTRAP", 50))
 SEED = int(config.get("SEED", 1228))
 BLOCK_SIZE = int(config.get("BLOCK_SIZE", 10000000))
 BIN_SIZE = int(config.get("BIN_SIZE", 500000))
-STANDARD_COMP = config.get("STANDARD_COMP", "gene_density.hg19")
+# STANDARD_COMP = config.get("STANDARD_COMP", "gene_density.hg19")
+STANDARD_COMP = config.get("STANDARD_COMP", "wbc")
 
 # Default base directory for data files. Default: ./data
 DATA_DIR = config.get("DATA_DIR", os.path.abspath("data"))
@@ -104,10 +105,18 @@ rule cofrag_cm:
         """
 
 rule cofrag_cm_merge:
-    input: expand("temp/{{sid}}.chr{chrom}.cofrag_cm.bed.gz", chrom=range(1, 23))
+    input: expand("temp/{{sid}}.chr{chrom}.cofrag_cm.bed.gz", chrom=[str(v) for v in range(1, 23)] + ["X"])
     output:
         cm="result/{sid}.cofrag_cm.bed.gz",
         cm_index="result/{sid}.cofrag_cm.bed.gz.tbi"
+    threads: lambda wildcards, attempt: int(1 * (0.5 + 0.5 * attempt))
+    resources:
+        mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
+        time=WALL_TIME_MAX,
+        time_min=300,
+        attempt=lambda wildcards, threads, attempt: attempt
+    params:
+        label=lambda wildcards: f"cofrag_cm_merge.{wildcards.sid}",
     shell:
         """
         set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
@@ -141,35 +150,40 @@ rule cofrag_compartment:
         cm="result/{sid}.cofrag_cm.bed.gz",
         cm_index="result/{sid}.cofrag_cm.bed.gz.tbi"
     output:
-        comp="result/{sid}.compartment.bed.gz",
-    log: "log/{sid}.compartment.log"
+        comp="result/{sid}.compartment.{method,(juicer|lieberman|obs_exp)}.bed.gz",
+        comp_correlation="result/{sid}.compartment_correlation.{method}.tsv",
+    log: "log/{sid}.compartment.{method}.log"
     params:
-        label=lambda wildcards: f"cofrag_compartment.{wildcards.sid}",
+        label=lambda wildcards: f"cofrag_compartment.{wildcards.sid}.{wildcards.method}",
         standard_comp=STANDARD_COMP,
         bin_size=BIN_SIZE,
         main_script=lambda wildcards: find_main_script("cofragr_comp.R"),
-    threads: 1
+    threads: lambda wildcards, attempt: int(2 * (0.5 + 0.5 * attempt))
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300
+        time_min=1440,
+        attempt=lambda wildcards, threads, attempt: attempt
     shell:
         """
-        tmpdir=$(mktemp -d)
+        set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
 
         Rscript {params.main_script} \
         -i {input.cm} \
         -o "$tmpdir" \
         -s {wildcards.sid} \
         --res {params.bin_size} \
-        --method juicer:lieberman:obs_exp \
-        --standard-compartment wbc \
+        --method {wildcards.method} \
+        --standard-compartment {params.standard_comp} \
         --genome hs37-1kg \
+        --smooth 1:2:3 \
         2>&1 | tee {log}
 
-        output_name={wildcards.sid}.compartment.bed.gz
-        mv "$tmpdir"/"$output_name" {output.comp}.tmp
+        output_comp_name={wildcards.sid}.compartment.bed.gz
+        output_correlation_name={wildcards.sid}.compartment_correlation.tsv
+        mv $tmpdir/$output_comp_name {output.comp}.tmp
         mv {output.comp}.tmp {output.comp}
+        mv $tmpdir/$output_correlation_name {output.comp_correlation}
         """
 
 
