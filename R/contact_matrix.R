@@ -137,7 +137,7 @@ stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
 
     n_frag1 <- length(len1)
     n_frag2 <- length(len2)
-    if (min(n_frag1, n_frag2) < min_sample_size)
+    if (isTRUE(min(n_frag1, n_frag2) < min_sample_size))
       return(NULL)
     # return(tibble(n_frag1 = n_frag1, n_frag2 = n_frag2, bootstrap = NA, p_value = NA))
 
@@ -150,15 +150,36 @@ stat_func_ks <- function(subsample, min_sample_size = NULL, bootstrap = 1L) {
     # Attention: if you calculate mean(pvalues) and then calculate score, it doesn't work
     # The compartment scores will look weird.
     score <- median(-log10(2e-16) + log10(pmax(2e-16, v)))
-    p_value <- mean(v)
-    p_value_sd <- sd(v)
+    # p_value <- mean(v)
+    # p_value_sd <- sd(v)
+    
+    
+    # Calculate hellinger distance
+    if (identical(len1, len2)) {
+      score_hellinger <- 1
+    } else {
+      bkde1 <- pmax(philentropy::binned.kernel.est(data = len1, range.data = c(1, 1000), gridsize = 1000)$y, 0)
+      bkde2 <- pmax(philentropy::binned.kernel.est(data = len2, range.data = c(1, 1000), gridsize = 1000)$y, 0)
+      hellinger_dist <- philentropy::distance(
+        x = rbind(bkde1, bkde2),
+        method = "hellinger",
+        est.prob = "empirical",
+        mute.message = TRUE
+      ) / 2
+      score_hellinger <- 1 - hellinger_dist
+    }
 
-    dplyr::tibble(
-      score = score,
-      n_frag1 = n_frag1,
-      n_frag2 = n_frag2,
-      p_value = p_value,
-      p_value_sd = p_value_sd
+    # score, n_frag1 and n_frag2 doesn't change across different bootstrap iterations
+    # To save space, we only record these values at bootstrap #1. For other iterations,
+    # we write NA instead.
+    # For p-values, however, we record all of them faithfully since they vary across iterations.
+    list(
+      score = c(score, rep(NA, bootstrap - 1)),
+      n_frag1 = c(n_frag1, rep(NA, bootstrap - 1)),
+      n_frag2 = c(n_frag2, rep(NA, bootstrap - 1)),
+      bootstrap = seq.int(bootstrap),
+      p_value = v,
+      hellinger = c(score_hellinger, rep(NA, bootstrap - 1))
     )
   }
 }
@@ -170,14 +191,22 @@ calc_contact_matrix <- function(fraglen,
                                 bin_size = 500e3L,
                                 block_size = 10e6L,
                                 n_workers = 1L,
+                                parallel = FALSE,
                                 seed = NULL) {
-  if (n_workers > 1) {
+  # If not in parallel mode, need just one core
+  if (!parallel)
+    n_workers <- 1
+
+  if (parallel && n_workers > 1) {
     # cl <- makeForkCluster(n_workers, outfile = "")
     cl <- makeCluster(n_workers, outfile = "")
     registerDoParallel(cl)
     logging::loginfo(str_interp("Successfully registered a cluster with ${n_workers} workers"))
     on.exit(stopCluster(cl), add = TRUE)
-  }
+    
+    `%loop%` <- doRNG::`%dorng%`
+  } else
+    `%loop%` <- foreach::`%do%`
 
   # Divide fraglen into blocks
   n_blocks <- (max(fraglen$start) - min(fraglen$start) + bin_size) / block_size
@@ -218,13 +247,13 @@ calc_contact_matrix <- function(fraglen,
 
   if (!is.null(seed))
     set.seed(seed)
-
+  
   foreach(
     data = foreach_layout,
     .export = "n_blocks",
     .combine = "rbind",
     .multicombine = TRUE
-  ) %dorng% {
+  ) %loop% {
     block_id <- data$block_id
 
     id_list_1 <- data$id_list_1
@@ -247,10 +276,10 @@ calc_contact_matrix <- function(fraglen,
       len2 <- fraglen_map[[as.character(id.2)]]
 
       result <- stat_func(len1, len2)
-      if (!is.null(result))
-        result <-
-        dplyr::mutate(result, id.1 = id.1, id.2 = id.2)
-
+      if (!is.null(result)) {
+        result$id.1 <- id.1
+        result$id.2 <- id.2
+      }
       result
     })
   } %>%
@@ -321,10 +350,23 @@ contact_matrix <-
            bin_size = 500e3L,
            block_size = 10e6L,
            n_workers = 1L,
+           parallel = FALSE,
            subsample = 10e3L,
            min_sample_size = 100L,
            bootstrap = 1L,
            seed = NULL) {
+    assert_that(is_list(fraglen_list))
+    assert_that(is_null(frag), msg = "Using frag as input is deprecated. Use fraglen_list instead.")
+    bin_size <- as.integer(bin_size)
+    assert_that(is_scalar_integer(bin_size) && bin_size %in% c(100e3L, 250e3L, 500e3L, 1e6L, 2.5e6L, 5e6L), msg = "Invalid bin_size")
+    block_size <- as.integer(block_size)
+    assert_that(is_scalar_integer(block_size) && block_size > 0 && block_size %% bin_size == 0)
+    assert_that(is_scalar_integer(n_workers) && n_workers >= 1)
+    assert_that(is_scalar_integer(subsample) && subsample >= 100)
+    assert_that(is_null(min_sample_size) || (is_scalar_integer(min_sample_size) && min_sample_size > 0))
+    assert_that(is_scalar_integer(bootstrap) && bootstrap >= 1)
+    assert_that(is_null(seed) || is_scalar_integer(seed))
+    
     if (!is.null(frag)) {
       stop("Using frag as input is deprecated. Use fraglen_list instead.")
     }
@@ -332,13 +374,14 @@ contact_matrix <-
     chrom <- names(fraglen_list)
     stopifnot(length(chrom) >= 1)
 
-    result <- chrom %>% map(function(chrom) {
+    chrom %>% map(function(chrom) {
       fraglen <- fraglen_list[[chrom]]
       plan <- cofrag_plan(fraglen, bin_size = bin_size)
-      calc_contact_matrix(
+      cm <- calc_contact_matrix(
         fraglen,
         plan,
         n_workers = n_workers,
+        parallel = parallel,
         block_size = block_size,
         stat_func = stat_func_ks(
           subsample = subsample,
@@ -347,8 +390,16 @@ contact_matrix <-
         ),
         bin_size = bin_size,
         seed = seed
+      )
+      cm %>% rename(
+        pos1 = start1,
+        pos2 = start2
+      ) %>% mutate(
+        chrom1 = chrom,
+        chrom2 = chrom
       ) %>%
-        build_gr(chrom = chrom, bin_size = bin_size)
+        select(chrom1, pos1, chrom2, pos2, everything()) %>%
+        hictools::ht_table(resol = bin_size, type = "cofrag", norm = "NONE")
     }) %>%
-      do.call(c, args = .)
+      hictools::concat_hic()
   }

@@ -9,25 +9,55 @@ stop_quietly <- function() {
 
 # # example
 # script_args <- list(
-#   input = here("sandbox/Pilot2-9.cofrag_cm.bed.gz"),
-#   output_dir = here("sandbox/"),
-#   sample_id = "T1",
+#   input = "~/Downloads/EE87929.cofrag_cm.bed.gz",
+#   output_dir = here::here("sandbox/"),
+#   sample_id = "EE87929",
 #   res = 500e3L,
 #   chroms = c("20", "21", "22"),
-#   smooth = 3L,
-#   method = "NONE",
+#   # method = c("juicer", "lieberman", "obs_exp"),
+#   method = c("lieberman", "obs_exp"),
+#   smooth = c(1L, 3L),
+#   standard_compartment = "wbc",
+#   genome = "hs37-1kg",
 #   juicer = NULL,
 #   java = "java"
 # )
 
 
+# script_args validity
+validate_args <- function(args) {
+  with(args, {
+    assert_that(
+      is_null(standard_compartment) ||
+        (
+          is_scalar_character(standard_compartment) &&
+            standard_compartment %in% c("wbc", "gene_density")
+        )
+    )
+    assert_that(is_scalar_integer(res) && res > 0)
+    assert_that(is_null(genome) ||
+                  (is_scalar_character(genome) && genome == "hs37-1kg"))
+    assert_that(length(method) >= 1 &&
+                  all(method %in% c("juicer", "lieberman", "obs_exp")))
+    # assert_that(length(smooth) >= 1 && is_integer(smooth) && all(smooth > 0))
+  }) %>% invisible()
+} 
+
+
 if (interactive()) {
   library(tidyverse)
   library(magrittr)
+  library(here)
+  library(rlang)
+  library(assertthat)
 
   if (is.null(get0("script_args")))
     stop_quietly()
 } else {
+  library(here)
+  library(rlang)
+  library(assertthat)
+  
   # Run in CLI script mode
   parser <- optparse::OptionParser(
     option_list = list(
@@ -37,18 +67,17 @@ if (interactive()) {
       optparse::make_option(c("--res"), type = "integer", default = 500e3L),
       optparse::make_option(c("--chroms"), default = NULL,
                             help = "Perform the analysis only for a selected group of chromosomes. Separated by colons, such as 12:16:X. If not provided, all chromosomes found in the input file will be used"),
-      # optparse::make_option(c("--method"), default = ""),
-      # optparse::make_option(c("--smooth"), type = "integer", default = 3L, help = "Apply moving average on the compartment track. Sometimes this can remove some quirks and make the data more similar to Hi-C compartment tracks"),
-      # optparse::make_option(
-      #   c("--standard-hic"),
-      #   type = "character",
-      #   default = NULL,
-      #   help = "A standard Hi-C map (.hic file) used for calculating HiCRep correlation scores"
-      # ),
+      optparse::make_option(c("--method"), default = "juicer:lieberman:obs_exp"),
+      optparse::make_option(c("--smooth"), default = "1:3", help = "Apply moving average on the compartment track. Sometimes this can remove some quirks and make the data more similar to Hi-C compartment tracks"),
       optparse::make_option(
         c("--standard-compartment"),
-        default = NULL,
-        help = "A standard compartment track (BED format) for calculating compartment correlation scores"
+        default = "wbc",
+        help = "A standard compartment track (BED format) for calculating compartment correlation scores. Can be either `wbc` or `gene_density`"
+      ),
+      optparse::make_option(
+        c("-g", "--genome"),
+        default = "hs37-1kg",
+        help = "Reference genome of the dataset. The default is hs37-1kg.",
       ),
       optparse::make_option(c("--juicer"), default = NULL,
                             help = "Path to the .jar file Juicer tools. If not provided, will download from Internet"),
@@ -66,15 +95,13 @@ if (interactive()) {
   library(tidyverse)
   library(magrittr)
 
-  if (!is.null(script_args$method))
-    script_args$method %<>% str_split(pattern = ":") %>% .[[1]]
-  if (!is.null(script_args$chroms))
+  script_args$method %<>% str_split(pattern = ":") %>% .[[1]]
+  script_args$smooth %<>% str_split(pattern = ":") %>% .[[1]] %>% map_int(as.integer)
+  if (!is_null(script_args$chroms))
     script_args$chroms %<>% str_split(pattern = ":") %>% .[[1]]
-  # if (!is.null(script_args$standard_hic))
-  #   script_args$standard_hic %<>% str_split(pattern = ":") %>% .[[1]]
-  # if (!is.null(script_args$standard_compartment))
-  #   script_args$standard_compartment %<>% str_split(pattern = ":") %>% .[[1]]
 }
+
+validate_args(script_args)
 
 # Build comment lines
 comments <- c(
@@ -115,54 +142,94 @@ logging::loginfo(
   )
 )
 
-comps <- expand_grid(
+# Standard compartment
+if (is_null(script_args$standard_compartment)) {
+  standard_comp <- NULL
+} else{
+  standard_comp <- local({
+    res_kbp <- as.integer(script_args$res / 1e3L)
+    comp_name <- script_args$standard_compartment
+    if (comp_name == "gene_density")
+      comp_name <-
+      str_interp("gencode.v30.b37.gene_density.${res_kbp}kbp")
+    else if (comp_name == "wbc")
+      comp_name <-
+      str_interp("wbc.rep1.compartment.hs37-1kg.NONE.${res_kbp}kbp")
+    
+    logging::loginfo(str_interp("Loading standard compartment: ${comp_name}"))
+    env <- rlang::env()
+    data(list = comp_name, envir = env, package = "hictools")
+    env[[comp_name]]
+  })
+}
+
+cofrag_comp_grid <- expand_grid(
   chrom = all_chroms,
-  smoothing = 1:3,
-  method = c("juicer", "hictools")
-) %>%
-  pmap(function(chrom, smoothing, method) {
+  method = script_args$method,
+  smooth = script_args$smooth,
+  metric = c("score", "hellinger")
+) 
+
+cofrag_comp_results <- cofrag_comp_grid %>%
+  pmap(function(chrom, method, smooth, metric) {
+    logging::loginfo(str_interp("Processing: chrom:${chrom} ${method} smooth:${smooth} ${metric}"))
     hic_data <-
       hictools::load_hic_genbed(
         script_args$input,
-        chrom = chrom,
+        chrom,
         resol = script_args$res,
-        type = "oe",
-        norm = "NONE"
+        type = "observed",
+        norm = "NONE",
+        genome = script_args$genome,
+        score_col = metric,
+        scale_score = TRUE
       )
-
-    if (!is.null(script_args$standard_compartment))
-      standard_comp <-
-        bedtorch::read_bed(script_args$standard_compartment,
-                           range = chrom,
-                           use_gr = FALSE)
-    else
-      standard_comp <- "gene_density.hg19"
-
-    if (method == "juicer") {
-      comps <-
-        hictools::compartment_juicer(hic_data, standard = standard_comp, smoothing = smoothing)
-    } else {
-      comps <-
-        hictools::compartment_ht(hic_data,
-                                 standard = standard_comp,
-                                 type = "oe",
-                                 smooth = smoothing)
-    }
-
+    
     comps <-
-      cbind(comps,
-            data.table::data.table(method = method, smooth = smoothing))
-    comps[, score := ifelse(is.infinite(score) |
-                              is.nan(score), NA, score)]
-  }) %>%
-  data.table::rbindlist(fill = TRUE)
+      hictools::get_compartment(hic_data,
+                                method = method,
+                                standard = standard_comp,
+                                smooth = smooth,
+                                genome = script_args$genome)
+    comps$method <- method
+    comps$smooth <- smooth
+    comps$metric <- metric
+    
+    comps$score <- local({
+      score <- comps$score
+      ifelse(is.infinite(score) | is.na(score), NA, score)
+    })
+    
+    seqinfo <- bedtorch::get_seqinfo(script_args$genome)
+    suppressWarnings({
+      GenomeInfoDb::seqlevels(comps) <- GenomeInfoDb::seqlevels(seqinfo)
+      GenomeInfoDb::seqinfo(comps) <- bedtorch::get_seqinfo(script_args$genome)
+      GenomicRanges::trim(comps)
+    })
+    
+    correlation <- hictools::comp_correlation(comps, standard_comp)
 
+    list(comps = comps, correlation = correlation)
+  })
+
+browser()
+comps <- cofrag_comp_results %>% map(~ .$comps) %>% do.call(what = c, args = .)
+
+cofrag_correlation <-
+  map2_dfr(seq.int(nrow(cofrag_comp_grid)), 
+           cofrag_comp_results, 
+           function(grid_idx, result) {
+    c(cofrag_comp_grid[grid_idx,], result$correlation)
+  })
 
 system(str_interp("mkdir -p ${script_args$output_dir}"))
 cofrag_comp_file <- str_interp("${script_args$output_dir}/${script_args$sample_id}.compartment.bed.gz")
+cofrag_correlation_file <- str_interp("${script_args$output_dir}/${script_args$sample_id}.compartment_correlation.tsv")
 logging::loginfo(str_interp("Write compartment scores: ${cofrag_comp_file}"))
+logging::loginfo(str_interp("Write compartment correlation: ${cofrag_correlation_file}"))
 
 bedtorch::write_bed(comps, file_path = cofrag_comp_file, comments = comments, tabix_index = FALSE)
+write_tsv(cofrag_correlation, file = cofrag_correlation_file)
 
 logging::loginfo(str_interp("Analysis completed, with results located at ${script_args$output_dir}"))
 

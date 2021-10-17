@@ -1,21 +1,27 @@
 # cofragr pipeline
+from snakemake.utils import min_version
+min_version("6.0")
 
-localrules: all, cofrag_cm_merge, cofrag_compartment, compartment_bigwig
+# localrules: all, cofrag_cm_merge, cofrag_compartment, compartment_bigwig
 
 # >>> Configuration >>>
-MEM_PER_CORE = config.get("MEM_PER_CORE", 1800)
+MEM_PER_CORE = config.get("MEM_PER_CORE", 2000)
 WALL_TIME_MAX = config.get("WALL_TIME_MAX", 2880)
 
 # cofragr specific configuration
-COFRAG_CORE = config.get("COFRAG_CORE", 4)
-SUBSAMPLE = config.get("SUBSAMPLE", 10000)
-MIN_MAPQ = config.get("MIN_MAPQ", 30)
-MIN_FRAGLEN = config.get("MIN_FRAGLEN", 50)
-MAX_FRAGLEN = config.get("MAX_FRAGLEN", 350)
-BOOTSTRAP = config.get("BOOTSTRAP", 50)
-SEED = config.get("SEED", 1228)
-BLOCK_SIZE = config.get("BLOCK_SIZE", 10000000)
-STANDARD_COMP = config.get("STANDARD_COMP", "gene_density.hg19")
+# COFRAG_MEM = int(config.get("COFRAG_MEM"), 6000)
+COFRAG_CORE = int(config.get("COFRAG_CORE", 4))
+
+SUBSAMPLE = int(config.get("SUBSAMPLE", 10000))
+MIN_MAPQ = int(config.get("MIN_MAPQ", 30))
+MIN_FRAGLEN = int(config.get("MIN_FRAGLEN", 50))
+MAX_FRAGLEN = int(config.get("MAX_FRAGLEN", 350))
+BOOTSTRAP = int(config.get("BOOTSTRAP", 50))
+SEED = int(config.get("SEED", 1228))
+BLOCK_SIZE = int(config.get("BLOCK_SIZE", 10000000))
+BIN_SIZE = int(config.get("BIN_SIZE", 500000))
+# STANDARD_COMP = config.get("STANDARD_COMP", "gene_density.hg19")
+STANDARD_COMP = config.get("STANDARD_COMP", "wbc")
 
 # Default base directory for data files. Default: ./data
 DATA_DIR = config.get("DATA_DIR", os.path.abspath("data"))
@@ -37,6 +43,14 @@ def find_main_script(script_name):
     ).stdout
 
 
+def mem_for_attempt(mem_mb, attempt):
+    return int(mem_mb * (0.5 + 0.5 * attempt))
+
+
+def threads_for_mem(mem_mb, mem_per_core=MEM_PER_CORE):
+    return int(math.ceil(mem_mb / mem_per_core) + 1)
+
+
 rule cofrag_cm:
     input:
         frag="frag/{sid}.frag.bed.gz",
@@ -53,6 +67,7 @@ rule cofrag_cm:
         min_fraglen=MIN_FRAGLEN,
         max_fraglen=MAX_FRAGLEN,
         block_size=BLOCK_SIZE,
+        bin_size=BIN_SIZE,
         main_script=lambda wildcards: find_main_script("cofragr.R"),
     threads: lambda wildcards, attempt: int(COFRAG_CORE * (0.5 + 0.5 * attempt))
     resources:
@@ -62,12 +77,15 @@ rule cofrag_cm:
         attempt=lambda wildcards, threads, attempt: attempt
     shell:
         """
-        tmpdir=$(mktemp -d)
+        set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
+
         Rscript {params.main_script} \
         -i {input.frag} \
         -o "$tmpdir" \
         -s {wildcards.sid} \
+        -g hs37-1kg \
         -n {threads} \
+        --res {params.bin_size} \
         --block-size {params.block_size} \
         --bootstrap {params.bootstrap} \
         --subsample {params.subsample} \
@@ -76,23 +94,34 @@ rule cofrag_cm:
         --min-mapq {params.min_mapq} \
         --min-fraglen {params.min_fraglen} \
         --max-fraglen {params.max_fraglen} \
+        --exclude-region encode.blacklist \
         2>&1 | tee {log}
 
-        ls -la "$tmpdir"
         output_name={wildcards.sid}.cofrag_cm.bed.gz
-        mv "$tmpdir"/"$output_name" {output.cm}.tmp
+        mv $tmpdir/$output_name {output.cm}.tmp
         mv {output.cm}.tmp {output.cm}
+
+        rm -rf $tmpdir
         """
 
 rule cofrag_cm_merge:
-    input: expand("temp/{{sid}}.chr{chrom}.cofrag_cm.bed.gz", chrom=range(1, 23))
+    input: expand("temp/{{sid}}.chr{chrom}.cofrag_cm.bed.gz", chrom=[str(v) for v in range(1, 23)] + ["X"])
     output:
         cm="result/{sid}.cofrag_cm.bed.gz",
         cm_index="result/{sid}.cofrag_cm.bed.gz.tbi"
+    threads: lambda wildcards, attempt: int(1 * (0.5 + 0.5 * attempt))
+    resources:
+        mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
+        time=WALL_TIME_MAX,
+        time_min=300,
+        attempt=lambda wildcards, threads, attempt: attempt
+    params:
+        label=lambda wildcards: f"cofrag_cm_merge.{wildcards.sid}",
     shell:
         """
-        tmpdir=$(mktemp -d)
-        output_file="$tmpdir"/output.bed
+        set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
+
+        output_file=$tmpdir/output.bed
 
         idx=0
         for input_file in {input}
@@ -111,6 +140,8 @@ rule cofrag_cm_merge:
         mv "$output_file".gz {output.cm}.tmp
         mv {output.cm}.tmp {output.cm}
         mv "$output_file".gz.tbi {output.cm_index}
+
+        rm -rf $tmpdir
         """
 
 
@@ -119,32 +150,40 @@ rule cofrag_compartment:
         cm="result/{sid}.cofrag_cm.bed.gz",
         cm_index="result/{sid}.cofrag_cm.bed.gz.tbi"
     output:
-        comp="result/{sid}.compartment.bedGraph.gz",
-        comp_index="result/{sid}.compartment.bedGraph.gz.tbi",
-    log: "log/{sid}.compartment.log"
+        comp="result/{sid}.compartment.{method,(juicer|lieberman|obs_exp)}.bed.gz",
+        comp_correlation="result/{sid}.compartment_correlation.{method}.tsv",
+    log: "log/{sid}.compartment.{method}.log"
     params:
-        label=lambda wildcards: f"cofrag_compartment.{wildcards.sid}",
-        standard_comp=STANDARD_COMP
-    threads: 1
+        label=lambda wildcards: f"cofrag_compartment.{wildcards.sid}.{wildcards.method}",
+        standard_comp=STANDARD_COMP,
+        bin_size=BIN_SIZE,
+        main_script=lambda wildcards: find_main_script("cofragr_comp.R"),
+    threads: lambda wildcards, attempt: int(2 * (0.5 + 0.5 * attempt))
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300
+        time_min=1440,
+        attempt=lambda wildcards, threads, attempt: attempt
     shell:
         """
-        tmpdir=$(mktemp -d)
-        cofragr_comp.R \
+        set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
+
+        Rscript {params.main_script} \
         -i {input.cm} \
         -o "$tmpdir" \
         -s {wildcards.sid} \
-        --res 500000 \
+        --res {params.bin_size} \
+        --method {wildcards.method} \
         --standard-compartment {params.standard_comp} \
+        --genome hs37-1kg \
+        --smooth 1:2:3 \
         2>&1 | tee {log}
 
-        output_name={wildcards.sid}.compartment.bedGraph.gz
-        mv "$tmpdir"/"$output_name" {output.comp}.tmp
+        output_comp_name={wildcards.sid}.compartment.bed.gz
+        output_correlation_name={wildcards.sid}.compartment_correlation.tsv
+        mv $tmpdir/$output_comp_name {output.comp}.tmp
         mv {output.comp}.tmp {output.comp}
-        mv "$tmpdir"/"$output_name".tbi {output.comp_index}
+        mv $tmpdir/$output_correlation_name {output.comp_correlation}
         """
 
 
