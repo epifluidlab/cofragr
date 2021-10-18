@@ -27,16 +27,15 @@ stop_quietly <- function() {
 # script_args validity
 validate_args <- function(args) {
   with(args, {
-    assert_that(
-      is_null(standard_compartment) ||
-        (
-          is_scalar_character(standard_compartment) &&
-            standard_compartment %in% c("wbc", "gene_density")
-        )
-    )
+    # assert_that(
+    #   is_null(standard_compartment) ||
+    #     (
+    #       is_scalar_character(standard_compartment) &&
+    #         standard_compartment %in% c("wbc", "gene_density")
+    #     )
+    # )
     assert_that(is_scalar_integer(res) && res > 0)
-    assert_that(is_null(genome) ||
-                  (is_scalar_character(genome) && genome == "hs37-1kg"))
+    assert_that(is_scalar_character(genome) && genome %in% c("GRCh38", "hs37-1kg"))
     assert_that(length(method) >= 1 &&
                   all(method %in% c("juicer", "lieberman", "obs_exp")))
     # assert_that(length(smooth) >= 1 && is_integer(smooth) && all(smooth > 0))
@@ -71,12 +70,12 @@ if (interactive()) {
       optparse::make_option(c("--smooth"), default = "1:3", help = "Apply moving average on the compartment track. Sometimes this can remove some quirks and make the data more similar to Hi-C compartment tracks"),
       optparse::make_option(
         c("--standard-compartment"),
-        default = "wbc",
+        default = NULL,
         help = "A standard compartment track (BED format) for calculating compartment correlation scores. Can be either `wbc` or `gene_density`"
       ),
       optparse::make_option(
         c("-g", "--genome"),
-        default = "hs37-1kg",
+        default = NULL,
         help = "Reference genome of the dataset. The default is hs37-1kg.",
       ),
       optparse::make_option(c("--juicer"), default = NULL,
@@ -105,9 +104,9 @@ validate_args(script_args)
 
 # Build comment lines
 comments <- c(
-  paste0("cofragr version: ", as.character(packageVersion("cofragr"))),
-  paste0("hictools version: ", as.character(packageVersion("hictools"))),
-  paste0("bedtorch version: ", as.character(packageVersion("bedtorch"))),
+  paste0("cofragr_version=", as.character(packageVersion("cofragr"))),
+  paste0("hictools_version=", as.character(packageVersion("hictools"))),
+  paste0("bedtorch_version=", as.character(packageVersion("bedtorch"))),
   # All items in script_args
   names(script_args) %>% purrr::map_chr(function(name) {
     v <- script_args[[name]]
@@ -167,7 +166,8 @@ cofrag_comp_grid <- expand_grid(
   chrom = all_chroms,
   method = script_args$method,
   smooth = script_args$smooth,
-  metric = c("score", "hellinger")
+  # metric = c("score", "hellinger")
+  metric = "score"
 ) 
 
 cofrag_comp_results <- cofrag_comp_grid %>%
@@ -191,6 +191,7 @@ cofrag_comp_results <- cofrag_comp_grid %>%
                                 standard = standard_comp,
                                 smooth = smooth,
                                 genome = script_args$genome)
+    
     comps$method <- method
     comps$smooth <- smooth
     comps$metric <- metric
@@ -207,20 +208,22 @@ cofrag_comp_results <- cofrag_comp_grid %>%
       GenomicRanges::trim(comps)
     })
     
-    correlation <- hictools::comp_correlation(comps, standard_comp)
+    if (!is.null(standard_comp))
+      correlation <- hictools::comp_correlation(comps, standard_comp)
+    else
+      correlation <- NA
 
     list(comps = comps, correlation = correlation)
   })
 
-browser()
 comps <- cofrag_comp_results %>% map(~ .$comps) %>% do.call(what = c, args = .)
 
-cofrag_correlation <-
-  map2_dfr(seq.int(nrow(cofrag_comp_grid)), 
-           cofrag_comp_results, 
-           function(grid_idx, result) {
-    c(cofrag_comp_grid[grid_idx,], result$correlation)
-  })
+# cofrag_correlation <-
+#   map2_dfr(seq.int(nrow(cofrag_comp_grid)), 
+#            cofrag_comp_results, 
+#            function(grid_idx, result) {
+#     c(cofrag_comp_grid[grid_idx,], result$correlation)
+#   })
 
 system(str_interp("mkdir -p ${script_args$output_dir}"))
 cofrag_comp_file <- str_interp("${script_args$output_dir}/${script_args$sample_id}.compartment.bed.gz")
@@ -229,7 +232,7 @@ logging::loginfo(str_interp("Write compartment scores: ${cofrag_comp_file}"))
 logging::loginfo(str_interp("Write compartment correlation: ${cofrag_correlation_file}"))
 
 bedtorch::write_bed(comps, file_path = cofrag_comp_file, comments = comments, tabix_index = FALSE)
-write_tsv(cofrag_correlation, file = cofrag_correlation_file)
+# write_tsv(cofrag_correlation, file = cofrag_correlation_file)
 
 logging::loginfo(str_interp("Analysis completed, with results located at ${script_args$output_dir}"))
 
