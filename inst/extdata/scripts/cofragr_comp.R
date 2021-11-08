@@ -35,7 +35,7 @@ validate_args <- function(args) {
     #     )
     # )
     assert_that(is_scalar_integer(res) && res > 0)
-    assert_that(is_scalar_character(genome) && genome %in% c("GRCh38", "hs37-1kg"))
+    assert_that(is_scalar_character(genome) && genome %in% c("GRCh38", "GRCh37", "hs37-1kg"))
     assert_that(length(method) >= 1 &&
                   all(method %in% c("juicer", "lieberman", "obs_exp")))
     # assert_that(length(smooth) >= 1 && is_integer(smooth) && all(smooth > 0))
@@ -154,6 +154,10 @@ if (is_null(script_args$standard_compartment)) {
     else if (comp_name == "wbc")
       comp_name <-
       str_interp("wbc.rep1.compartment.hs37-1kg.NONE.${res_kbp}kbp")
+    else if (comp_name == "gc")
+      comp_name <- str_interp("gc.${script_args$genome}.${res_kbp}kbp")
+    else
+      stop(paste0("Invalid standard compartment: ", comp_name))
     
     logging::loginfo(str_interp("Loading standard compartment: ${comp_name}"))
     env <- rlang::env()

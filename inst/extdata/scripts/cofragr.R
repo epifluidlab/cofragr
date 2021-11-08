@@ -9,17 +9,25 @@ stop_quietly <- function() {
 # script_args validity
 validate_args <- function(args) {
   with(args, {
-    assert_that(is_scalar_character(metrics) && metrics %in% c("ks"), msg = "metrics must be ks")
+    assert_that(
+      is_scalar_character(metrics) &&
+        metrics %in% c("ks", "hellinger"),
+      msg = paste0("Invalid metrics: ", metrics)
+    )
     assert_that(
       is_scalar_character(genome) &&
         genome %in% c("hs37-1kg", "GRCh37", "GRCh38"),
       msg = str_interp("Unsupported genome: ${genome}")
     )
     assert_that(is_scalar_integer(res) && res > 0)
-    assert_that(is_scalar_integer(block_size) && block_size > 0 && block_size %% res == 0, msg = "block_size must be a positive integer which is the multiple of res")
+    assert_that(is_scalar_integer(block_size) &&
+                  block_size > 0 &&
+                  block_size %% res == 0,
+                msg = "block_size must be a positive integer which is the multiple of res")
     assert_that(is_scalar_integer(ncores) && ncores >= 1)
     assert_that(is_scalar_integer(bootstrap) && bootstrap >= 1)
-    assert_that(is_scalar_integer(subsample) && subsample >= 100, msg = "subsample must be a positive integer no less than 100")
+    assert_that(is_scalar_integer(subsample) &&
+                  subsample >= 100, msg = "subsample must be a positive integer no less than 100")
     assert_that(is_scalar_integer(min_mapq) && min_mapq >= 0)
     assert_that(is_scalar_integer(min_fraglen) && min_fraglen >= 1)
     assert_that(is_scalar_integer(max_fraglen) && max_fraglen >= 1)
@@ -80,51 +88,58 @@ if (interactive()) {
       optparse::make_option(c("-i", "--input")),
       optparse::make_option(c("-o", "--output-dir")),
       optparse::make_option(c("-s", "--sample-id")),
-      optparse::make_option(c("-m", "--metrics"), default = "ks"),
-      optparse::make_option(c("-g", "--genome"), default = "hs37-1kg",
-                            help = "Reference genome for the input"),
-      optparse::make_option(c("--res"), type = "integer", default = 500e3L),
-      optparse::make_option(c("--block-size"), type = "integer", default = 10e6L),
-      optparse::make_option(c("-n", "--ncores"), type = "integer", default = 1L),
-      optparse::make_option(c("--bootstrap"), type = "integer", default = 1L),
-      optparse::make_option(c("--subsample"), type = "integer", default = NULL),
-      optparse::make_option(c("--seed"), type = "integer", default = NULL),
+      optparse::make_option(c("-m", "--metrics"), default = "ks",
+                            help = "Metrics for calculating contact scores. Must be ks or hellinger [ks]"),
+      optparse::make_option(c("-g", "--genome"), default = "GRCh38",
+                            help = "Reference genome for the input. Must be hs37-1kg, GRCh37, or GRCh38 [GRCh38]"),
+      optparse::make_option(c("--res"), type = "integer", default = 500e3L,
+                            help = "Resolution, aka bin size [500000]"),
+      optparse::make_option(c("--block-size"), type = "integer", default = 10e6L,
+                            help = "Block size. Must be multiple of --res [10000000]"),
+      optparse::make_option(c("-n", "--ncores"), type = "integer", default = 1L,
+                            help = "Number of threads [1]"),
+      optparse::make_option(c("--bootstrap"), type = "integer", default = 1L,
+                            help = "Number of bootstrap iterations [1]"),
+      optparse::make_option(c("--subsample"), type = "integer", default = NULL,
+                            help = "Subsample size. NULL means do not perform subsampling [NULL]"),
+      optparse::make_option(c("--seed"), type = "integer", default = NULL,
+                            help = "Seed for random number generator [NULL]"),
       optparse::make_option(c("--chroms"), default = NULL,
-                            help = "Perform the analysis only for a selected group of chromosomes. Separated by colons, such as 12:16:X. If not provided, all chromosomes found in the input file will be used"),
+                            help = "Perform the analysis only for a selected group of chromosomes. Separated by colons, such as 12:16:X. If not provided, all chromosomes found in the input file will be used [NULL]"),
       optparse::make_option(c("--exclude-chroms"), default = NULL,
-                            help = "Exclude chromosomes from the analysis. Separated by colons, such as 12:16:X"),
+                            help = "Exclude chromosomes from the analysis. Separated by colons, such as 12:16:X [NULL]"),
       optparse::make_option(
         c("--min-mapq"),
         type = "integer",
         default = 1L,
-        help = "Minimal MAPQ for fragments to take part in the analysis"
+        help = "Minimal MAPQ for fragments to take part in the analysis [1]"
       ),
       optparse::make_option(
         c("--min-fraglen"),
         type = "integer",
         default = 100L,
-        help = "Minimal length for fragments to take part in the analysis"
+        help = "Minimal length for fragments to take part in the analysis [100]"
       ),
       optparse::make_option(
         c("--max-fraglen"),
         type = "integer",
         default = 350L,
-        help = "Maximal length for fragments to take part in the analysis"
+        help = "Maximal length for fragments to take part in the analysis [300]"
       ),
       optparse::make_option(
         c("--intersect-region"),
         type = "character",
         default = NULL,
-        help = "BED files defining regions to be intersected with the fragment data file, separated by colon"
+        help = "BED files defining regions to be intersected with the fragment data file, separated by colon [NULL]"
       ),
       optparse::make_option(
         c("--exclude-region"),
         type = "character",
         default = NULL,
         # default = "encode.blacklist",
-        help = "BED files defining regions to be excluded from the analysis, separated by colon"
+        help = "BED files defining regions to be excluded from the analysis, separated by colon [NULL]"
       ),
-      optparse::make_option(c("--parallel"), default = TRUE, help = "Run in parallel mode. Default is TRUE")
+      optparse::make_option(c("--parallel"), default = TRUE, help = "Run in parallel mode [TRUE]")
     )
   )
   script_args <-
