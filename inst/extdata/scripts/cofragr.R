@@ -94,6 +94,8 @@ if (interactive()) {
                             help = "Reference genome for the input. Must be hs37-1kg, GRCh37, or GRCh38 [GRCh38]"),
       optparse::make_option(c("--res"), type = "integer", default = 500e3L,
                             help = "Resolution, aka bin size [500000]"),
+      optparse::make_option(c("--standard-compartment"), type = "character", default = NULL,
+                            help = "Path to a BED file for standard compartment scores [NULL]"),
       optparse::make_option(c("--block-size"), type = "integer", default = 10e6L,
                             help = "Block size. Must be multiple of --res [10000000]"),
       optparse::make_option(c("-n", "--ncores"), type = "integer", default = 1L,
