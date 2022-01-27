@@ -7,7 +7,9 @@
 read_fragments(file_path, range = NULL, genome = NULL)
 }
 \arguments{
-\item{file_path}{path to the file.}
+\item{file_path}{a character vector representing paths of fragment files.
+This argument accepts multiple input files which is convenient for sample
+pooling.}
 
 \item{range}{read the entire file if \code{range} is \code{NULL}.}
 }

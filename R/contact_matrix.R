@@ -5,14 +5,19 @@
 #' the data frame should contain a column representing MAPQ scores. However, the
 #' data file may not have a column header. Therefore, we may need to guess which
 #' column represents MAPQ scores.
-#'
-#' @param file_path path to the file.
+#' @param file_path a character vector representing paths of fragment files.
+#'   This argument accepts multiple input files which is convenient for sample
+#'   pooling.
 #' @param range read the entire file if `range` is `NULL`.
 #' @export
 read_fragments <- function(file_path, range = NULL, genome = NULL) {
-  frag <- bedtorch::read_bed(file_path = file_path,
-                             range = range,
-                             genome = genome)
+  frag <- lapply(file_path, function(path) {
+    bedtorch::read_bed(file_path = path,
+                       range = range,
+                       genome = genome)
+  }) %>%
+    do.call(what = c, args = .)
+  GenomicRanges::strand(frag) <- "*"
   frag_metadata <- mcols(frag)
 
   mapq_guessed <- FALSE
