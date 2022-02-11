@@ -2,7 +2,7 @@
 from snakemake.utils import min_version
 min_version("6.0")
 
-# localrules: all, cofrag_cm_merge, cofrag_compartment, compartment_bigwig
+localrules: all, cofrag_cm_merge #, cofrag_compartment, compartment_bigwig
 
 # >>> Configuration >>>
 MEM_PER_CORE = config.get("MEM_PER_CORE", 2000)
@@ -20,6 +20,8 @@ BOOTSTRAP = int(config.get("BOOTSTRAP", 50))
 SEED = int(config.get("SEED", 1228))
 BLOCK_SIZE = int(config.get("BLOCK_SIZE", 10000000))
 BIN_SIZE = int(config.get("BIN_SIZE", 500000))
+
+CHROM_LIST = config.get("CHROM_LIST", ",".join([str(v) for v in range(1, 23)] + ["X"])).split(",")
 # STANDARD_COMP = config.get("STANDARD_COMP", "gene_density.hg19")
 STANDARD_COMP = config.get("STANDARD_COMP", "wbc")
 
@@ -53,13 +55,13 @@ def threads_for_mem(mem_mb, mem_per_core=MEM_PER_CORE):
 
 rule cofrag_cm:
     input:
-        frag="frag/{sid}.frag.bed.gz",
-        frag_idx="frag/{sid}.frag.bed.gz.tbi",
+        frag="frag/{sid}.{genome}.frag.bed.gz",
+        frag_idx="frag/{sid}.{genome}.frag.bed.gz.tbi",
     output:
-        cm=temp("temp/{sid}.chr{chrom}.cofrag_cm.bed.gz"),
-    log: "log/{sid}.chr{chrom}.cofrag_cm.log"
+        cm=temp("temp/{sid}.{genome,(hg19|hg38|GRCh37|GRCh38)}.chr{chrom}.cofrag_cm.bed.gz"),
+    log: "log/{sid}.{genome}.chr{chrom}.cofrag_cm.log"
     params:
-        label=lambda wildcards: f"cofrag_cm.{wildcards.sid}.chr{wildcards.chrom}",
+        slurm_job_label=lambda wildcards: f"cofrag_cm.{wildcards.sid}.{wildcards.genome}.chr{wildcards.chrom}",
         bootstrap=BOOTSTRAP,
         subsample=SUBSAMPLE,
         seed=SEED,
@@ -79,11 +81,15 @@ rule cofrag_cm:
         """
         set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
 
-        Rscript {params.main_script} \
+        env | grep -i conda
+
+        env | grep -i local
+
+        Rscript cofragr.R \
         -i {input.frag} \
         -o "$tmpdir" \
         -s {wildcards.sid} \
-        -g hs37-1kg \
+        -g {wildcards.genome} \
         -n {threads} \
         --res {params.bin_size} \
         --block-size {params.block_size} \
@@ -93,8 +99,7 @@ rule cofrag_cm:
         --chroms {wildcards.chrom} \
         --min-mapq {params.min_mapq} \
         --min-fraglen {params.min_fraglen} \
-        --max-fraglen {params.max_fraglen} \
-        --exclude-region encode.blacklist \
+        --max-fraglen {params.max_fraglen}
         2>&1 | tee {log}
 
         output_name={wildcards.sid}.cofrag_cm.bed.gz
@@ -105,10 +110,10 @@ rule cofrag_cm:
         """
 
 rule cofrag_cm_merge:
-    input: expand("temp/{{sid}}.chr{chrom}.cofrag_cm.bed.gz", chrom=[str(v) for v in range(1, 23)] + ["X"])
+    input: expand("temp/{{sid}}.{{genome}}.chr{chrom}.cofrag_cm.bed.gz", chrom=CHROM_LIST)
     output:
-        cm="result/{sid}.cofrag_cm.bed.gz",
-        cm_index="result/{sid}.cofrag_cm.bed.gz.tbi"
+        cm="cofrag/{sid}.{genome,(hg19|hg38|GRCh37|GRCh38)}.cofrag_cm.bed.gz",
+        cm_index="cofrag/{sid}.{genome}.cofrag_cm.bed.gz.tbi"
     threads: lambda wildcards, attempt: int(1 * (0.5 + 0.5 * attempt))
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
@@ -116,7 +121,7 @@ rule cofrag_cm_merge:
         time_min=300,
         attempt=lambda wildcards, threads, attempt: attempt
     params:
-        label=lambda wildcards: f"cofrag_cm_merge.{wildcards.sid}",
+        slurm_job_label=lambda wildcards: f"cofrag_cm_merge.{wildcards.sid},{wildcards.genome}",
     shell:
         """
         set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
@@ -147,18 +152,18 @@ rule cofrag_cm_merge:
 
 rule cofrag_compartment:
     input:
-        cm="result/{sid}.cofrag_cm.bed.gz",
-        cm_index="result/{sid}.cofrag_cm.bed.gz.tbi"
+        cm="cofrag/{sid}.{genome}.cofrag_cm.bed.gz",
+        cm_index="cofrag/{sid}.{genome}.cofrag_cm.bed.gz.tbi"
     output:
-        comp="result/{sid}.compartment.{method,(juicer|lieberman|obs_exp)}.bed.gz",
-        comp_correlation="result/{sid}.compartment_correlation.{method}.tsv",
-    log: "log/{sid}.compartment.{method}.log"
+        comp="cofrag/{sid}.{genome,(hg19|hg38|GRCh37|GRCh38)}.compartment.{method,(juicer|lieberman|obs_exp)}.bed.gz",
+        #comp_correlation="cofrag/{sid}.{genome}.compartment_correlation.{method}.tsv",
+    log: "log/{sid}.{genome}.compartment.{method}.log"
     params:
-        label=lambda wildcards: f"cofrag_compartment.{wildcards.sid}.{wildcards.method}",
+        slurm_job_label=lambda wildcards: f"cofrag_compartment.{wildcards.sid}.{wildcards.genome}.{wildcards.method}",
         standard_comp=STANDARD_COMP,
         bin_size=BIN_SIZE,
         main_script=lambda wildcards: find_main_script("cofragr_comp.R"),
-    threads: lambda wildcards, attempt: int(2 * (0.5 + 0.5 * attempt))
+    threads: lambda wildcards, attempt: int(8 * (0.5 + 0.5 * attempt))
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
@@ -168,33 +173,30 @@ rule cofrag_compartment:
         """
         set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
 
-        Rscript {params.main_script} \
-        -i {input.cm} \
-        -o "$tmpdir" \
-        -s {wildcards.sid} \
+        Rscript cofragr_comp.R \
+        -o $tmpdir/output.bed.gz \
         --res {params.bin_size} \
         --method {wildcards.method} \
-        --standard-compartment {params.standard_comp} \
-        --genome hs37-1kg \
-        --smooth 1:2:3 \
+        --genome {wildcards.genome} \
+        --reference gc \
+        --smooth 1,2,3 \
+        -n {threads} \
+        {input.cm} \
         2>&1 | tee {log}
 
-        output_comp_name={wildcards.sid}.compartment.bed.gz
-        output_correlation_name={wildcards.sid}.compartment_correlation.tsv
-        mv $tmpdir/$output_comp_name {output.comp}.tmp
+        mv $tmpdir/output.bed.gz {output.comp}.tmp
         mv {output.comp}.tmp {output.comp}
-        mv $tmpdir/$output_correlation_name {output.comp_correlation}
         """
 
 
 rule compartment_bigwig:
     input:
-        comp="result/{sid}.compartment.bedGraph.gz",
+        comp="cofrag/{sid}.compartment.bedGraph.gz",
         chrom_sizes="human_g1k_v37.chrom.sizes"
     output:
-        "result/{sid}.compartment.bw",
+        "cofrag/{sid}.compartment.bw",
     params:
-        label=lambda wildcards: f"compartment_bigwig.{wildcards.sid}",
+        slurm_job_label=lambda wildcards: f"compartment_bigwig.{wildcards.sid}",
     threads: 1
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
