@@ -28,21 +28,8 @@ STANDARD_COMP = config.get("STANDARD_COMP", "wbc")
 # Default base directory for data files. Default: ./data
 DATA_DIR = config.get("DATA_DIR", os.path.abspath("data"))
 
-# programmatically locate the script
-def find_main_script(script_name):
-    import subprocess
-
-    return subprocess.run(
-        [
-            "Rscript",
-            "-e",
-            f'cat(paste0(system.file("extdata/scripts/{script_name}", package = "cofragr")))',
-        ],
-        capture_output=True,
-        shell=False,
-        text=True,
-        check=True,
-    ).stdout
+SCRIPT_PATH = config.get("SCRIPT_PATH", ".") 
+DISABLE_PARALLEL = bool(config.get("DISABLE_PARALLEL", 0))
 
 
 def mem_for_attempt(mem_mb, attempt):
@@ -70,7 +57,8 @@ rule cofrag_cm:
         max_fraglen=MAX_FRAGLEN,
         block_size=BLOCK_SIZE,
         bin_size=BIN_SIZE,
-        main_script=lambda wildcards: find_main_script("cofragr.R"),
+        main_script=lambda wildcards: f"{SCRIPT_PATH}/cofragr.R",
+        disable_parallel=lambda wildcards: "--disable-parallel" if DISABLE_PARALLEL else "",
     threads: lambda wildcards, attempt: int(COFRAG_CORE * (0.5 + 0.5 * attempt))
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
@@ -81,11 +69,7 @@ rule cofrag_cm:
         """
         set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
 
-        env | grep -i conda
-
-        env | grep -i local
-
-        Rscript cofragr.R \
+        Rscript {params.main_script} \
         -i {input.frag} \
         -o "$tmpdir" \
         -s {wildcards.sid} \
@@ -99,7 +83,8 @@ rule cofrag_cm:
         --chroms {wildcards.chrom} \
         --min-mapq {params.min_mapq} \
         --min-fraglen {params.min_fraglen} \
-        --max-fraglen {params.max_fraglen}
+        --max-fraglen {params.max_fraglen} \
+        {params.disable_parallel} \
         2>&1 | tee {log}
 
         output_name={wildcards.sid}.cofrag_cm.bed.gz
@@ -162,7 +147,7 @@ rule cofrag_compartment:
         slurm_job_label=lambda wildcards: f"cofrag_compartment.{wildcards.sid}.{wildcards.genome}.{wildcards.method}",
         standard_comp=STANDARD_COMP,
         bin_size=BIN_SIZE,
-        main_script=lambda wildcards: find_main_script("cofragr_comp.R"),
+        main_script=lambda wildcards: f"{SCRIPT_PATH}/cofragr_comp.R",
     threads: lambda wildcards, attempt: int(8 * (0.5 + 0.5 * attempt))
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
@@ -173,7 +158,7 @@ rule cofrag_compartment:
         """
         set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
 
-        Rscript cofragr_comp.R \
+        Rscript {params.main_script} \
         -o $tmpdir/output.bed.gz \
         --res {params.bin_size} \
         --method {wildcards.method} \

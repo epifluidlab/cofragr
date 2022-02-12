@@ -58,7 +58,7 @@ script_args <- list(
   max_fraglen = 350L,
   intersect_region = NULL, # here("sandbox/cofrag/cfEW1.cna.neutral.bed"),
   exclude_region = "encode.blacklist",
-  parallel = TRUE
+  disable_parallel = FALSE
 )
 
 
@@ -166,7 +166,7 @@ if (interactive()) {
         # default = "encode.blacklist",
         help = "BED files defining regions to be excluded from the analysis, separated by colon [NULL]"
       ),
-      optparse::make_option(c("--parallel"), default = TRUE, help = "Run in parallel mode [TRUE]")
+      optparse::make_option(c("--disable-parallel"), action = "store_true", default = FALSE, help = "Run in non-parallel mode [FALSE]")
     )
   )
   script_args <-
@@ -358,7 +358,7 @@ cofrag_cm <- all_chroms %>%
       bin_size = script_args$res,
       block_size = script_args$block_size,
       n_workers = script_args$ncores,
-      parallel = script_args$parallel,
+      parallel = !script_args$disable_parallel,
       subsample = script_args$subsample,
       min_sample_size = 100L,
       bootstrap = script_args$bootstrap,
@@ -366,7 +366,6 @@ cofrag_cm <- all_chroms %>%
     )
   }) %>%
   hictools::concat_hic()
-# do.call(what = c, args = .)
 
 
 output_dir <- script_args$output_dir
