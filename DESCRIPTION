@@ -1,6 +1,6 @@
 Package: cofragr
 Title: R package for cofragmentation analysis
-Version: 0.1.2.7
+Version: 0.1.2.8
 Authors@R: 
     person(given = "Haizi",
            family = "Zheng",
@@ -20,9 +20,9 @@ Suggests:
     here
 Imports:
     tidyverse,
-    bedtorch (>= 0.1.12.7),
-    hictools (>= 0.1.5.1),
-    strawr (>= 0.0.3),
+    bedtorch (>= 0.1.12.11),
+    hictools (>= 0.1.19),
+    strawr (>= 0.0.9),
     philentropy (>= 0.5.0),
     GenomicRanges,
     here,

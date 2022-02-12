@@ -84,7 +84,7 @@ write_contact_matrix <- function(cm, file_path, comments = NULL) {
 #     2 30000000 <int [1,265]>
 #     3 30100000 <int [1,313]>
 fraglen_over_window <- function(frag, bin_size = 500e3L) {
-  stopifnot(bin_size %in% c(100e3L, 500e3L, 1e6L, 2.5e6L, 5e6L))
+  stopifnot(bin_size %in% c(50e3L, 100e3L, 250e3L, 500e3L, 1e6L, 2.5e6L, 5e6L))
 
   # Only allow single chromosome fragment data
   chrom <- unique(seqnames(frag))
@@ -380,7 +380,7 @@ contact_matrix <-
     assert_that(is_list(fraglen_list))
     assert_that(is_null(frag), msg = "Using frag as input is deprecated. Use fraglen_list instead.")
     bin_size <- as.integer(bin_size)
-    assert_that(is_scalar_integer(bin_size) && bin_size %in% c(100e3L, 250e3L, 500e3L, 1e6L, 2.5e6L, 5e6L), msg = "Invalid bin_size")
+    assert_that(is_scalar_integer(bin_size) && bin_size %in% c(50e3L, 100e3L, 250e3L, 500e3L, 1e6L, 2.5e6L, 5e6L), msg = "Invalid bin_size")
     block_size <- as.integer(block_size)
     assert_that(is_scalar_integer(block_size) && block_size > 0 && block_size %% bin_size == 0)
     assert_that(is_scalar_integer(n_workers) && n_workers >= 1)

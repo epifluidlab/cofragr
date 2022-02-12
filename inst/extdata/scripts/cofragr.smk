@@ -30,6 +30,7 @@ DATA_DIR = config.get("DATA_DIR", os.path.abspath("data"))
 
 SCRIPT_PATH = config.get("SCRIPT_PATH", ".") 
 DISABLE_PARALLEL = bool(config.get("DISABLE_PARALLEL", 0))
+R = config.get("R", "Rscript")
 
 
 def mem_for_attempt(mem_mb, attempt):
@@ -57,7 +58,6 @@ rule cofrag_cm:
         max_fraglen=MAX_FRAGLEN,
         block_size=BLOCK_SIZE,
         bin_size=BIN_SIZE,
-        main_script=lambda wildcards: f"{SCRIPT_PATH}/cofragr.R",
         disable_parallel=lambda wildcards: "--disable-parallel" if DISABLE_PARALLEL else "",
     threads: lambda wildcards, attempt: int(COFRAG_CORE * (0.5 + 0.5 * attempt))
     resources:
@@ -69,7 +69,9 @@ rule cofrag_cm:
         """
         set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
 
-        Rscript {params.main_script} \
+        {R} -e 'sessionInfo()'
+
+        {R} {SCRIPT_PATH}/cofragr.R \
         -i {input.frag} \
         -o "$tmpdir" \
         -s {wildcards.sid} \
@@ -147,7 +149,6 @@ rule cofrag_compartment:
         slurm_job_label=lambda wildcards: f"cofrag_compartment.{wildcards.sid}.{wildcards.genome}.{wildcards.method}",
         standard_comp=STANDARD_COMP,
         bin_size=BIN_SIZE,
-        main_script=lambda wildcards: f"{SCRIPT_PATH}/cofragr_comp.R",
     threads: lambda wildcards, attempt: int(8 * (0.5 + 0.5 * attempt))
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
@@ -158,7 +159,9 @@ rule cofrag_compartment:
         """
         set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
 
-        Rscript {params.main_script} \
+        {R} -e 'sessionInfo()'
+
+        {R} {SCRIPT_PATH}/cofragr_comp.R \
         -o $tmpdir/output.bed.gz \
         --res {params.bin_size} \
         --method {wildcards.method} \
