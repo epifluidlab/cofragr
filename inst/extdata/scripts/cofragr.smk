@@ -2,11 +2,12 @@
 from snakemake.utils import min_version
 min_version("6.0")
 
-localrules: all, cofrag_cm_merge #, cofrag_compartment, compartment_bigwig
+# localrules: all, cofrag_cm_merge, cofrag_compartment, compartment_bigwig
 
 # >>> Configuration >>>
 MEM_PER_CORE = config.get("MEM_PER_CORE", 2000)
 WALL_TIME_MAX = config.get("WALL_TIME_MAX", 2880)
+WALL_TIME_MIN = config.get("WALL_TIME_MIN", 300)
 
 # cofragr specific configuration
 # COFRAG_MEM = int(config.get("COFRAG_MEM"), 6000)
@@ -63,7 +64,7 @@ rule cofrag_cm:
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300,
+        time_min=WALL_TIME_MIN,
         attempt=lambda wildcards, threads, attempt: attempt
     shell:
         """
@@ -101,11 +102,11 @@ rule cofrag_cm_merge:
     output:
         cm="cofrag/{sid}.{genome,(hg19|hg38|GRCh37|GRCh38)}.cofrag_cm.bed.gz",
         cm_index="cofrag/{sid}.{genome}.cofrag_cm.bed.gz.tbi"
-    threads: lambda wildcards, attempt: int(1 * (0.5 + 0.5 * attempt))
+    threads: lambda wildcards, attempt: int(2 * (0.5 + 0.5 * attempt))
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300,
+        time_min=WALL_TIME_MIN,
         attempt=lambda wildcards, threads, attempt: attempt
     params:
         slurm_job_label=lambda wildcards: f"cofrag_cm_merge.{wildcards.sid},{wildcards.genome}",
@@ -113,25 +114,25 @@ rule cofrag_cm_merge:
         """
         set +u; if [ -z $LOCAL ] || [ -z $SLURM_CLUSTER_NAME ]; then tmpdir=$(mktemp -d); else tmpdir=$(mktemp -d -p $LOCAL); fi; set -u
 
-        output_file=$tmpdir/output.bed
+        output_file=$tmpdir/output.bed.gz
 
         idx=0
         for input_file in {input}
         do
+            echo "Processing $input_file" ...
             idx=$((idx + 1))
             if [ $idx == 1 ]; then
-                zcat "$input_file" > "$output_file"
+                cp "$input_file" "$output_file"
             else
-                zcat "$input_file" | awk 'substr($0,1,1)!="#"' >> "$output_file"
+                zcat "$input_file" | awk 'substr($0,1,1)!="#"' | bgzip >> "$output_file"
             fi
         done
 
-        bgzip "$output_file"
-        tabix -p bed "$output_file".gz
+        tabix -p bed "$output_file"
 
-        mv "$output_file".gz {output.cm}.tmp
+        mv "$output_file" {output.cm}.tmp
         mv {output.cm}.tmp {output.cm}
-        mv "$output_file".gz.tbi {output.cm_index}
+        mv "$output_file".tbi {output.cm_index}
 
         rm -rf $tmpdir
         """
@@ -153,7 +154,7 @@ rule cofrag_compartment:
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=1440,
+        time_min=WALL_TIME_MIN,
         attempt=lambda wildcards, threads, attempt: attempt
     shell:
         """
@@ -189,7 +190,7 @@ rule compartment_bigwig:
     resources:
         mem_mb=lambda wildcards, threads: threads * MEM_PER_CORE,
         time=WALL_TIME_MAX,
-        time_min=300
+        time_min=WALL_TIME_MIN
     shell:
         """
         tmpdir=$(mktemp -d)
