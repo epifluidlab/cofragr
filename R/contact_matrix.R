@@ -19,24 +19,19 @@ read_fragments <- function(file_path, range = NULL, genome = NULL) {
     do.call(what = c, args = .)
   GenomicRanges::strand(frag) <- "*"
   frag_metadata <- mcols(frag)
-
-  mapq_guessed <- FALSE
-  if (!"mapq" %in% colnames(frag_metadata)) {
-    logging::logwarn("mapq not in column names. Need to guess which column is mapq")
-
-    for (col_idx in seq_along(colnames(frag_metadata))) {
-      if (is.integer(frag_metadata[[col_idx]])) {
-        logging::logwarn(str_interp("Column ${colnames(frag_metadata)[col_idx]} seems to be mapq"))
-        colnames(frag_metadata)[col_idx] <- "mapq"
-        mapq_guessed <- TRUE
-        break
-      }
+  
+  if ("mapq" %in% colnames(frag_metadata)) {
+    if (!is.integer(frag_metadata$mapq)) {
+      logging::logerror("MAPQ should be integers")
+      print(frag)
+      stop()
     }
-
-    if (!"mapq" %in% colnames(frag_metadata))
-      stop("Cannot find mapq in the data frame")
+  } else if (ncol(frag_metadata) >= 2 && is.integer(frag_metadata[[2]])) {
+    frag_metadata$mapq <- frag_metadata[[2]]
+  } else {
+    logging::logwarn("Cannot find MAPQ in the data frame")
   }
-
+  
   # Only need mapq. Drop other columns
   mcols(frag) <-
     frag_metadata[intersect(c("mapq", "cigar1", "cigar2"), colnames(frag_metadata))]
@@ -55,8 +50,7 @@ read_fragments <- function(file_path, range = NULL, genome = NULL) {
   GenomicRanges::end(frag) <- mid_point
   frag <- sort(frag)
   
-  if (mapq_guessed)
-    print(frag)
+  print(frag)
   
   return(frag)
 }
